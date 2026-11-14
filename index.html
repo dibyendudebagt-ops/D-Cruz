@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>D'Cruz Car Rental | Alto K10 Booking & Live Trip Tracker with OTP Verification</title>
+  <title>D'Cruz Car Rental | Alto K10 Booking & Live Trip Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Leaflet CSS & JS for Interactive Map + Satellite Layer -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -86,8 +86,17 @@
 
   <main class="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-    <!-- Left Column: Live Satellite Map & OTP Verification Panel -->
+    <!-- Left Column: Live Satellite Map & Driver OTP Verification Panel -->
     <section class="lg:col-span-7 space-y-4">
+      
+      <!-- Lockout Notice Banner -->
+      <div id="lockoutBanner" class="hidden bg-rose-950/90 border border-rose-600 text-rose-200 px-4 py-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-3 shadow-lg">
+        <div class="flex items-center gap-2">
+          <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 shrink-0"></i>
+          <span id="lockoutText">Car is currently en-route. Booking button is locked.</span>
+        </div>
+      </div>
+
       <div class="bg-[#1a202c] p-4 rounded-2xl shadow-lg border border-slate-800">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
@@ -427,6 +436,33 @@
   <script>
     lucide.createIcons();
 
+    // --- LOCAL LOCKOUT & BUTTON RE-ENABLING MANAGEMENT ---
+    function lockBookingInterface(dest, passenger) {
+      const btn = document.getElementById('btnConfirmBooking');
+      const banner = document.getElementById('lockoutBanner');
+      const lockoutText = document.getElementById('lockoutText');
+
+      btn.disabled = true;
+      btn.className = 'w-full bg-slate-800 text-slate-500 font-extrabold text-sm py-3 rounded-xl shadow-inner cursor-not-allowed flex items-center justify-center gap-2';
+      btn.innerHTML = '<i data-lucide="lock" class="w-4 h-4"></i> Car Currently En-Route (Locked)';
+
+      lockoutText.innerHTML = `⚠️ <b>Car is en-route to ${dest}</b> for passenger <b>${passenger}</b>. Please wait until trip completes.`;
+      banner.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function unlockBookingInterface() {
+      const btn = document.getElementById('btnConfirmBooking');
+      const banner = document.getElementById('lockoutBanner');
+
+      btn.disabled = false;
+      btn.className = 'w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2';
+      btn.innerHTML = '<i data-lucide="check-circle-2" class="w-4 h-4"></i> Confirm Booking Online (Generate OTP)';
+
+      banner.classList.add('hidden');
+      lucide.createIcons();
+    }
+
     // --- 1. SATELLITE & STREET MAP SETUP ---
     const defaultFrom = [23.8315, 91.2868]; // Agartala City Center
     const defaultTo   = [23.8869, 91.2404]; // MBB Airport Agartala
@@ -647,7 +683,6 @@
         return;
       }
 
-      // Generate 4-digit OTP for the client passenger
       generatedOtpCode = Math.floor(1000 + Math.random() * 9000).toString();
 
       const fromLoc = document.getElementById('fromInput').value.trim();
@@ -663,7 +698,6 @@
         paymentMethod
       };
 
-      // Display OTP on client side
       document.getElementById('generatedOtpText').textContent = generatedOtpCode;
       document.getElementById('passengerOtpDisplayBox').classList.remove('hidden');
       document.getElementById('tripStatusBadge').innerHTML =
@@ -692,8 +726,10 @@
         return;
       }
 
-      // OTP Verified Successfully -> Start Journey Automatically
+      // OTP Verified Successfully -> Lock booking interface locally
       isJourneyStarted = true;
+      const destName = document.getElementById('toInput').value.trim();
+      lockBookingInterface(destName, currentBookingData.bookedBy);
 
       document.getElementById('driverOtpBox').classList.add('hidden');
       document.getElementById('btnCompleteTrip').classList.remove('hidden');
@@ -705,7 +741,6 @@
       document.getElementById('activeStatusNotice').textContent =
         `OTP Verified successfully! Journey active for ${currentBookingData.bookedBy}.`;
 
-      // Save record in ledger
       const records = getRecords();
       const newId = Date.now();
       activeBookingId = newId;
@@ -763,6 +798,9 @@
       document.getElementById('btnCancelEnRoute').classList.add('hidden');
       document.getElementById('driverOtpBox').classList.remove('hidden');
       document.getElementById('driverEnteredOtp').value = '';
+
+      // Re-enable booking button
+      unlockBookingInterface();
     }
 
     function cancelBeforeStart() {
@@ -857,7 +895,7 @@
     }
 
     // --- 4. RECORD STORAGE & ONEDRIVE EXCEL / MS ACCESS EXPORT ---
-    const STORAGE_KEY = 'dcruz_onedrive_records_v6';
+    const STORAGE_KEY = 'dcruz_onedrive_records_v8';
 
     function getRecords() {
       try {
