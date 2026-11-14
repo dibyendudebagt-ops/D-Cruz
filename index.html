@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D'Cruz Car Rental | Alto K10 Booking & Live Trip Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS & JS for Interactive Map + Satellite Layer -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- SheetJS (XLSX) for Direct Excel (.xlsx) Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    #map { height: 430px; width: 100%; border-radius: 0.75rem; z-index: 1; }
+    .leaflet-container { font-family: 'Inter', sans-serif; }
+    .pulse-marker {
+      background: #ef4444;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.35);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+      70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-amber-500 text-slate-950 p-2 rounded-xl font-extrabold shadow">
+          <i data-lucide="car" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-extrabold tracking-tight text-white">
+            D'Cruz <span class="text-amber-400">@9612032475 / 8787865648</span>
+          </h1>
+          <p class="text-xs text-slate-300">Alto K10 Hatchback • Max 2 Adults + 1 Kid • Live Satellite GPS</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="tel:9612032475" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center gap-1.5 transition">
+          <i data-lucide="phone-call" class="w-3.5 h-3.5"></i> 9612032475
+        </a>
+        <a href="tel:8787865648" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center gap-1.5 transition">
+          <i data-lucide="phone" class="w-3.5 h-3.5"></i> 8787865648
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Column: Live Satellite Map & End-to-End Journey Tracker -->
+    <section class="lg:col-span-7 space-y-4">
+      <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="satellite" class="w-5 h-5 text-amber-600"></i>
+              Live Journey & Satellite Route Map
+            </h2>
+            <p class="text-xs text-slate-500">Default Satellite + Labels view active. Drag pins or click map to set From/To.</p>
+          </div>
+
+          <!-- Map Layer Switcher Buttons -->
+          <div class="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1 text-xs font-semibold">
+            <button type="button" id="btnSatView" onclick="setMapLayer('satellite')" class="px-3 py-1.5 rounded-md bg-slate-900 text-white shadow-sm transition">
+              Satellite View
+            </button>
+            <button type="button" id="btnStreetView" onclick="setMapLayer('street')" class="px-3 py-1.5 rounded-md text-slate-700 hover:text-slate-900 transition">
+              Street Map
+            </button>
+          </div>
+        </div>
+
+        <!-- From / To Search Inputs -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <div class="relative">
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-emerald-700 mb-1">From (Pickup Point)</label>
+            <div class="flex gap-1.5">
+              <input id="fromInput" type="text" value="Agartala City Center, Tripura" placeholder="Enter pickup location..."
+                class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              <button type="button" onclick="searchLocation('from')" title="Search Pickup" class="bg-slate-800 hover:bg-slate-700 text-white px-2.5 rounded-lg">
+                <i data-lucide="search" class="w-4 h-4"></i>
+              </button>
+              <button type="button" onclick="useMyGPS()" title="Use Current GPS" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 rounded-lg">
+                <i data-lucide="locate-fixed" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="relative">
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-rose-700 mb-1">To (Destination)</label>
+            <div class="flex gap-1.5">
+              <input id="toInput" type="text" value="Maharaja Bir Bikram Airport, Agartala" placeholder="Enter destination..."
+                class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              <button type="button" onclick="searchLocation('to')" title="Search Destination" class="bg-slate-800 hover:bg-slate-700 text-white px-2.5 rounded-lg">
+                <i data-lucide="search" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Destination Presets -->
+        <div class="flex flex-wrap items-center gap-1.5 mb-3">
+          <span class="text-[11px] font-semibold text-slate-500 mr-1">Quick Destinations:</span>
+          <button type="button" onclick="setQuickDest('MBB Airport Agartala', 23.8869, 91.2404)" class="text-xs bg-slate-100 hover:bg-amber-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition">MBB Airport</button>
+          <button type="button" onclick="setQuickDest('Agartala Railway Station', 23.7975, 91.2783)" class="text-xs bg-slate-100 hover:bg-amber-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition">Railway Station</button>
+          <button type="button" onclick="setQuickDest('Udaipur Tripura Sundari Temple', 23.5161, 91.4984)" class="text-xs bg-slate-100 hover:bg-amber-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition">Udaipur</button>
+          <button type="button" onclick="setQuickDest('Neermahal Melaghar', 23.4958, 91.3264)" class="text-xs bg-slate-100 hover:bg-amber-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition">Neermahal</button>
+          <button type="button" onclick="setQuickDest('Dharmanagar, Tripura', 24.3746, 92.1678)" class="text-xs bg-slate-100 hover:bg-amber-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition">Dharmanagar</button>
+        </div>
+
+        <!-- Live Satellite Map Container -->
+        <div id="map" class="border border-slate-300 shadow-inner"></div>
+
+        <!-- Live Trip Telemetry & Journey Simulation / GPS Tracking Bar -->
+        <div class="mt-3 bg-slate-900 text-white p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-4">
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Road Distance</span>
+              <span id="distanceDisplay" class="text-lg font-extrabold text-amber-400">12.4 km</span>
+            </div>
+            <div class="h-8 w-px bg-slate-700"></div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Est. Travel Time</span>
+              <span id="durationDisplay" class="text-sm font-bold text-white">24 mins</span>
+            </div>
+            <div class="h-8 w-px bg-slate-700"></div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Live Journey Status</span>
+              <span id="tripStatusBadge" class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Ready to Start
+              </span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button type="button" id="btnStartLiveTrip" onclick="toggleLiveJourney()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow transition">
+              <i data-lucide="navigation" class="w-3.5 h-3.5"></i> Start Live View Till End
+            </button>
+            <button type="button" id="btnEndLiveTrip" onclick="endLiveJourney()" class="hidden bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3 py-2 rounded-lg flex items-center gap-1.5 shadow transition">
+              <i data-lucide="flag" class="w-3.5 h-3.5"></i> End Journey
+            </button>
+          </div>
+        </div>
+        <!-- Live Progress Bar -->
+        <div id="liveProgressWrap" class="hidden mt-2">
+          <div class="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+            <span>Live Vehicle Telemetry (Alto K10)</span>
+            <span id="liveProgressPct">0% Completed</span>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+            <div id="liveProgressBar" class="bg-emerald-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cloud Drive Sync Instructions Banner (dibyendu_deb@outlook.com) -->
+      <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-950 space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="font-bold flex items-center gap-1.5 text-blue-900">
+            <i data-lucide="cloud" class="w-4 h-4 text-blue-600"></i>
+            OneDrive / Cloud Excel & MS Access Sync (<span class="underline">dibyendu_deb@outlook.com</span>)
+          </span>
+          <span class="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded">Privacy Mode Active</span>
+        </div>
+        <p class="text-blue-800 leading-relaxed">
+          Per your rule, <strong>only Customer Name, Contact Number, and Payment Method</strong> are saved in the ledger (no GPS or route history stored). Export as <strong>Excel (.xlsx)</strong> or <strong>MS Access-compatible CSV</strong> and save directly inside your synced <strong>OneDrive folder for dibyendu_deb@outlook.com</strong> (or auto-sync via Power Automate webhook).
+        </p>
+      </div>
+    </section>
+
+    <!-- Right Column: Booking Form, Tariff Calculator & Google Pay -->
+    <section class="lg:col-span-5 space-y-4">
+      <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Alto K10 Fare & Booking</h2>
+            <p class="text-xs text-slate-500">Capacity: Max 2 Adults + 1 Kid</p>
+          </div>
+          <span class="bg-amber-100 text-amber-800 text-xs font-bold px-2.5 py-1 rounded-full">Hatchback</span>
+        </div>
+
+        <!-- Tariff Selection -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1.5">Select Tariff Plan</label>
+          <div class="grid grid-cols-1 gap-2">
+            <label class="flex items-center justify-between p-2.5 border rounded-xl cursor-pointer hover:bg-slate-50 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50/60">
+              <div class="flex items-center gap-2.5">
+                <input type="radio" name="tariff" value="10" checked onchange="recalculateFare()" class="accent-amber-600 w-4 h-4" />
+                <div>
+                  <div class="text-xs font-bold text-slate-900">Standard / Full Capacity</div>
+                  <div class="text-[11px] text-slate-500">Point-to-point full car rate</div>
+                </div>
+              </div>
+              <span class="text-sm font-extrabold text-slate-900">₹10/km</span>
+            </label>
+
+            <label class="flex items-center justify-between p-2.5 border rounded-xl cursor-pointer hover:bg-slate-50 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50/60">
+              <div class="flex items-center gap-2.5">
+                <input type="radio" name="tariff" value="18" onchange="recalculateFare()" class="accent-amber-600 w-4 h-4" />
+                <div>
+                  <div class="text-xs font-bold text-slate-900">Contract / Hiring (Non-AC)</div>
+                  <div class="text-[11px] text-slate-500">Custom contract charter without AC</div>
+                </div>
+              </div>
+              <span class="text-sm font-extrabold text-slate-900">₹18/km</span>
+            </label>
+
+            <label class="flex items-center justify-between p-2.5 border rounded-xl cursor-pointer hover:bg-slate-50 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50/60">
+              <div class="flex items-center gap-2.5">
+                <input type="radio" name="tariff" value="20" onchange="recalculateFare()" class="accent-amber-600 w-4 h-4" />
+                <div>
+                  <div class="text-xs font-bold text-slate-900">Contract / Hiring (AC On)</div>
+                  <div class="text-[11px] text-slate-500">Full comfort contract with AC</div>
+                </div>
+              </div>
+              <span class="text-sm font-extrabold text-slate-900">₹20/km</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Distance Override & Night Halt -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Distance (km)</label>
+            <input id="distanceInput" type="number" step="0.1" min="1" value="12.4" oninput="recalculateFare()"
+              class="w-full text-sm font-semibold border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Night Halt (₹150/night)</label>
+            <input id="nightHaltInput" type="number" min="0" max="30" value="0" oninput="recalculateFare()"
+              class="w-full text-sm font-semibold border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+        </div>
+
+        <!-- Passenger Count Validation (Max 2 Adults + 1 Kid) -->
+        <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Adults (Max 2)</label>
+            <select id="adultsCount" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white">
+              <option value="1">1 Adult</option>
+              <option value="2" selected>2 Adults</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Kids (Max 1)</label>
+            <select id="kidsCount" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white">
+              <option value="0">0 Kids</option>
+              <option value="1" selected>1 Kid</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Fare Summary Box -->
+        <div class="bg-slate-900 text-white p-4 rounded-xl space-y-1.5">
+          <div class="flex justify-between text-xs text-slate-300">
+            <span>Distance Charge (<span id="summaryKm">12.4</span> km × ₹<span id="summaryRate">10</span>)</span>
+            <span id="summaryBaseFare">₹124</span>
+          </div>
+          <div class="flex justify-between text-xs text-slate-300">
+            <span>Night Halt (<span id="summaryNights">0</span> × ₹150)</span>
+            <span id="summaryNightFare">₹0</span>
+          </div>
+          <div class="border-t border-slate-700 pt-2 flex justify-between items-center">
+            <span class="text-sm font-bold">Total Estimated Fare</span>
+            <span id="totalFareDisplay" class="text-2xl font-extrabold text-amber-400">₹124</span>
+          </div>
+        </div>
+
+        <!-- Customer Details (Strictly stored fields: Name, Contact, Payment Method) -->
+        <form id="bookingForm" onsubmit="handleBookingSubmit(event)" class="space-y-3 pt-1">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Booked By (Full Name) *</label>
+            <input id="customerName" type="text" required placeholder="Enter passenger name"
+              class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Contact Mobile Number *</label>
+            <input id="customerPhone" type="tel" required pattern="[0-9]{10}" maxlength="10" placeholder="10-digit mobile number"
+              class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Payment Method *</label>
+            <select id="paymentMethod" onchange="toggleGPayBox()" class="w-full text-sm font-semibold border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none">
+              <option value="Google Pay (9612032475)" selected>Google Pay / UPI (9612032475)</option>
+              <option value="Cash on Pickup">Cash on Pickup</option>
+              <option value="Bank Transfer / UPI">Bank Transfer / Other UPI</option>
+            </select>
+          </div>
+
+          <!-- Google Pay QR & Direct Pay Box for 9612032475 -->
+          <div id="gpayBox" class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
+            <img id="upiQrImg" alt="Google Pay QR 9612032475" class="w-20 h-20 rounded-lg border border-emerald-300 bg-white p-1 shrink-0" />
+            <div class="space-y-1 text-xs">
+              <div class="font-extrabold text-emerald-950">Pay D'Cruz via Google Pay</div>
+              <div class="text-emerald-800 font-semibold">GPay / UPI Mobile: <span class="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-200">9612032475</span></div>
+              <a id="upiDeepLink" href="#" class="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-md text-[11px] transition">
+                <i data-lucide="smartphone" class="w-3 h-3"></i> Open Google Pay App
+              </a>
+            </div>
+          </div>
+
+          <button type="submit" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i> Confirm Booking & Save Record
+          </button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- Minimalist Cloud Drive / MS Access / Excel Ledger Section -->
+  <section class="max-w-7xl mx-auto px-4 pb-12">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Saved Customer Records (For MS Access & Excel Cloud Drive)</h3>
+          <p class="text-xs text-slate-500">Stores strictly <strong>Booked By</strong>, <strong>Contact Number</strong>, and <strong>Payment Method</strong> for <span class="font-semibold text-slate-700">dibyendu_deb@outlook.com</span></p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" onclick="exportToExcel()" class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm transition">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Download Excel (.xlsx)
+          </button>
+          <button type="button" onclick="exportToAccessCSV()" class="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm transition">
+            <i data-lucide="database" class="w-4 h-4"></i> Export MS Access (.csv)
+          </button>
+          <button type="button" onclick="clearRecords()" class="bg-slate-200 hover:bg-rose-100 hover:text-rose-700 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition">
+            Clear Local List
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-slate-100 text-slate-700 text-xs uppercase tracking-wider border-b border-slate-200">
+              <th class="py-2.5 px-3 font-bold">#</th>
+              <th class="py-2.5 px-3 font-bold">Booked By (Name)</th>
+              <th class="py-2.5 px-3 font-bold">Contact Number</th>
+              <th class="py-2.5 px-3 font-bold">Payment Method</th>
+            </tr>
+          </thead>
+          <tbody id="recordsTableBody" class="divide-y divide-slate-100 text-slate-800">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // Initialize Icons
+    lucide.createIcons();
+
+    // --- 1. SATELLITE & STREET MAP SETUP (Esri World Imagery + Reference Labels) ---
+    const defaultFrom = [23.8315, 91.2868]; // Agartala City Center
+    const defaultTo   = [23.8869, 91.2404]; // MBB Airport Agartala
+
+    const map = L.map('map', { zoomControl: true }).setView([23.858, 91.265], 12);
+
+    // High-Resolution Satellite Tile Layer (Esri World Imagery)
+    const satelliteImagery = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
+      }
+    );
+
+    // Hybrid Roads & Place Labels Overlay on top of Satellite
+    const satelliteLabels = L.tileLayer(
+      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19 }
+    );
+    const satelliteRoads = L.tileLayer(
+      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19 }
+    );
+
+    const hybridSatelliteGroup = L.layerGroup([satelliteImagery, satelliteRoads, satelliteLabels]);
+
+    // Standard OpenStreetMap Layer
+    const streetLayer = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }
+    );
+
+    // Load Satellite View by default as requested
+    hybridSatelliteGroup.addTo(map);
+
+    function setMapLayer(mode) {
+      const btnSat = document.getElementById('btnSatView');
+      const btnStr = document.getElementById('btnStreetView');
+      if (mode === 'satellite') {
+        map.removeLayer(streetLayer);
+        hybridSatelliteGroup.addTo(map);
+        btnSat.className = 'px-3 py-1.5 rounded-md bg-slate-900 text-white shadow-sm transition';
+        btnStr.className = 'px-3 py-1.5 rounded-md text-slate-700 hover:text-slate-900 transition';
+      } else {
+        map.removeLayer(hybridSatelliteGroup);
+        streetLayer.addTo(map);
+        btnStr.className = 'px-3 py-1.5 rounded-md bg-slate-900 text-white shadow-sm transition';
+        btnSat.className = 'px-3 py-1.5 rounded-md text-slate-700 hover:text-slate-900 transition';
+      }
+    }
+
+    // Custom Markers
+    const fromIcon = L.divIcon({
+      html: '<div style="background:#10b981;color:#fff;font-weight:800;font-size:10px;padding:3px 7px;border-radius:999px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);">FROM</div>',
+      className: '', iconSize: [46, 22], iconAnchor: [23, 11]
+    });
+    const toIcon = L.divIcon({
+      html: '<div style="background:#e11d48;color:#fff;font-weight:800;font-size:10px;padding:3px 7px;border-radius:999px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);">TO</div>',
+      className: '', iconSize: [36, 22], iconAnchor: [18, 11]
+    });
+    const carIcon = L.divIcon({
+      html: '<div class="pulse-marker" style="width:18px;height:18px;"></div>',
+      className: '', iconSize: [18, 18], iconAnchor: [9, 9]
+    });
+
+    const fromMarker = L.marker(defaultFrom, { draggable: true, icon: fromIcon }).addTo(map);
+    const toMarker   = L.marker(defaultTo,   { draggable: true, icon: toIcon }).addTo(map);
+    let routePolyline = null;
+    let routeCoordinates = [];
+    let liveCarMarker = null;
+    let liveSimulationTimer = null;
+    let gpsWatchId = null;
+
+    // Fetch Road Route via OSRM
+    async function updateRoute() {
+      const start = fromMarker.getLatLng();
+      const end   = toMarker.getLatLng();
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const km = (route.distance / 1000).toFixed(1);
+          const mins = Math.max(1, Math.round(route.duration / 60));
+
+          document.getElementById('distanceDisplay').textContent = `${km} km`;
+          document.getElementById('durationDisplay').textContent = `${mins} mins`;
+          document.getElementById('distanceInput').value = km;
+
+          routeCoordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          if (routePolyline) map.removeLayer(routePolyline);
+          routePolyline = L.polyline(routeCoordinates, {
+            color: '#f59e0b',
+            weight: 5,
+            opacity: 0.92
+          }).addTo(map);
+
+          map.fitBounds(routePolyline.getBounds(), { padding: [45, 45] });
+          recalculateFare();
+        }
+      } catch (err) {
+        // Fallback straight-line haversine distance * 1.25 road factor
+        const distMeters = map.distance(start, end);
+        const km = ((distMeters / 1000) * 1.25).toFixed(1);
+        document.getElementById('distanceDisplay').textContent = `${km} km`;
+        document.getElementById('distanceInput').value = km;
+        routeCoordinates = [[start.lat, start.lng], [end.lat, end.lng]];
+        if (routePolyline) map.removeLayer(routePolyline);
+        routePolyline = L.polyline(routeCoordinates, { color: '#f59e0b', weight: 4, dashArray: '6,6' }).addTo(map);
+        recalculateFare();
+      }
+    }
+
+    fromMarker.on('dragend', updateRoute);
+    toMarker.on('dragend', updateRoute);
+
+    // Click map to alternate setting destination
+    map.on('click', (e) => {
+      toMarker.setLatLng(e.latlng);
+      document.getElementById('toInput').value = `Pinned Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`;
+      updateRoute();
+    });
+
+    // Geocode search using Nominatim
+    async function searchLocation(type) {
+      const inputEl = document.getElementById(type === 'from' ? 'fromInput' : 'toInput');
+      const query = inputEl.value.trim();
+      if (!query) return;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+        const results = await res.json();
+        if (results && results.length > 0) {
+          const lat = parseFloat(results[0].lat);
+          const lon = parseFloat(results[0].lon);
+          if (type === 'from') {
+            fromMarker.setLatLng([lat, lon]);
+          } else {
+            toMarker.setLatLng([lat, lon]);
+          }
+          updateRoute();
+        } else {
+          alert('Location not found. Try adding city/state name (e.g., Agartala, Tripura).');
+        }
+      } catch (e) {
+        alert('Unable to search location right now. You can drag the pins directly on the satellite map.');
+      }
+    }
+
+    function setQuickDest(label, lat, lng) {
+      document.getElementById('toInput').value = label;
+      toMarker.setLatLng([lat, lng]);
+      updateRoute();
+    }
+
+    function useMyGPS() {
+      if (!navigator.geolocation) {
+        alert('Geolocation is not supported by your browser.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          fromMarker.setLatLng([latitude, longitude]);
+          document.getElementById('fromInput').value = `My Live GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+          updateRoute();
+        },
+        () => alert('Please allow location access in your browser to lock onto your live GPS.')
+      );
+    }
+
+    // --- 2. LIVE VIEW TILL END OF JOURNEY ---
+    function toggleLiveJourney() {
+      if (routeCoordinates.length < 2) return;
+      document.getElementById('btnStartLiveTrip').classList.add('hidden');
+      document.getElementById('btnEndLiveTrip').classList.remove('hidden');
+      document.getElementById('liveProgressWrap').classList.remove('hidden');
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Live Journey In Progress';
+
+      if (liveCarMarker) map.removeLayer(liveCarMarker);
+      liveCarMarker = L.marker(routeCoordinates[0], { icon: carIcon }).addTo(map)
+        .bindPopup("<b>D'Cruz Alto K10</b><br>Live Journey Active").openPopup();
+
+      // Try real device GPS watchPosition if moving, plus smooth route progress tracking
+      if (navigator.geolocation) {
+        gpsWatchId = navigator.geolocation.watchPosition((pos) => {
+          const livePos = [pos.coords.latitude, pos.coords.longitude];
+          liveCarMarker.setLatLng(livePos);
+          map.panTo(livePos);
+        }, () => {}, { enableHighAccuracy: true });
+      }
+
+      let step = 0;
+      const totalSteps = routeCoordinates.length;
+      liveSimulationTimer = setInterval(() => {
+        if (step >= totalSteps) {
+          endLiveJourney(true);
+          return;
+        }
+        const coord = routeCoordinates[step];
+        liveCarMarker.setLatLng(coord);
+        map.panTo(coord, { animate: true });
+        const pct = Math.min(100, Math.round(((step + 1) / totalSteps) * 100));
+        document.getElementById('liveProgressBar').style.width = `${pct}%`;
+        document.getElementById('liveProgressPct').textContent = `${pct}% Completed`;
+        step++;
+      }, 700);
+    }
+
+    function endLiveJourney(completed = false) {
+      if (liveSimulationTimer) clearInterval(liveSimulationTimer);
+      if (gpsWatchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+      }
+      document.getElementById('btnStartLiveTrip').classList.remove('hidden');
+      document.getElementById('btnEndLiveTrip').classList.add('hidden');
+      document.getElementById('tripStatusBadge').innerHTML = completed
+        ? '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Destination Reached'
+        : '<span class="w-2 h-2 rounded-full bg-slate-400"></span> Journey Ended';
+      if (completed) {
+        document.getElementById('liveProgressBar').style.width = '100%';
+        document.getElementById('liveProgressPct').textContent = '100% Arrived at Destination';
+      }
+    }
+
+    // --- 3. FARE CALCULATION & GOOGLE PAY QR (9612032475) ---
+    function recalculateFare() {
+      const rate = parseFloat(document.querySelector('input[name="tariff"]:checked').value) || 10;
+      const km = Math.max(0, parseFloat(document.getElementById('distanceInput').value) || 0);
+      const nights = Math.max(0, parseInt(document.getElementById('nightHaltInput').value, 10) || 0);
+
+      const baseFare = Math.round(km * rate);
+      const nightFare = nights * 150;
+      const totalFare = baseFare + nightFare;
+
+      document.getElementById('summaryKm').textContent = km.toFixed(1);
+      document.getElementById('summaryRate').textContent = rate;
+      document.getElementById('summaryBaseFare').textContent = `₹${baseFare}`;
+      document.getElementById('summaryNights').textContent = nights;
+      document.getElementById('summaryNightFare').textContent = `₹${nightFare}`;
+      document.getElementById('totalFareDisplay').textContent = `₹${totalFare}`;
+
+      // Update Google Pay UPI link & QR for 9612032475
+      const upiUri = `upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=${totalFare}&cu=INR&tn=Alto%20K10%20Booking`;
+      document.getElementById('upiDeepLink').href = upiUri;
+      document.getElementById('upiQrImg').src =
+        `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(upiUri)}`;
+    }
+
+    function toggleGPayBox() {
+      const method = document.getElementById('paymentMethod').value;
+      document.getElementById('gpayBox').style.display = method.includes('Google Pay') ? 'flex' : 'none';
+    }
+
+    // --- 4. MINIMALIST RECORD STORAGE (ONLY Name, Contact, Payment Method) ---
+    // Note: Intentionally excludes route/location/GPS history per user requirement.
+    const STORAGE_KEY = 'dcruz_minimal_customer_records_v1';
+
+    function getRecords() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      } catch {
+        return [];
+      }
+    }
+
+    function renderRecords() {
+      const records = getRecords();
+      const tbody = document.getElementById('recordsTableBody');
+      if (records.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-xs text-slate-400">No bookings recorded yet. Confirm a booking above to add it here.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = records.map((r, idx) => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2.5 px-3 font-semibold text-slate-500">${idx + 1}</td>
+          <td class="py-2.5 px-3 font-bold text-slate-900">${escapeHtml(r.bookedBy)}</td>
+          <td class="py-2.5 px-3 font-mono text-slate-700">${escapeHtml(r.contactNumber)}</td>
+          <td class="py-2.5 px-3">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+              ${escapeHtml(r.paymentMethod)}
+            </span>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function handleBookingSubmit(e) {
+      e.preventDefault();
+      const bookedBy = document.getElementById('customerName').value.trim();
+      const contactNumber = document.getElementById('customerPhone').value.trim();
+      const paymentMethod = document.getElementById('paymentMethod').value;
+
+      if (!bookedBy || !contactNumber) return;
+
+      const records = getRecords();
+      records.push({
+        bookedBy,
+        contactNumber,
+        paymentMethod
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      renderRecords();
+
+      document.getElementById('bookingForm').reset();
+      toggleGPayBox();
+      alert(`Booking confirmed for ${bookedBy}! Saved strictly Name, Contact, and Payment Method.`);
+    }
+
+    // Export strictly 3 columns to Excel (.xlsx) for OneDrive (dibyendu_deb@outlook.com)
+    function exportToExcel() {
+      const records = getRecords();
+      if (records.length === 0) {
+        alert('No booking records available to export yet.');
+        return;
+      }
+      const rows = records.map(r => ({
+        'Booked By': r.bookedBy,
+        'Contact Number': r.contactNumber,
+        'Payment Method': r.paymentMethod
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      worksheet['!cols'] = [{ wch: 26 }, { wch: 18 }, { wch: 28 }];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'DCruz_Bookings');
+      XLSX.writeFile(workbook, 'DCruz_Bookings_OneDrive.xlsx');
+    }
+
+    // Export strictly 3 columns to MS Access-ready CSV
+    function exportToAccessCSV() {
+      const records = getRecords();
+      if (records.length === 0) {
+        alert('No booking records available to export yet.');
+        return;
+      }
+      const header = ['Booked_By,Contact_Number,Payment_Method'];
+      const lines = records.map(r =>
+        `"${r.bookedBy.replace(/"/g, '""')}","${r.contactNumber.replace(/"/g, '""')}","${r.paymentMethod.replace(/"/g, '""')}"`
+      );
+      const blob = new Blob([header.concat(lines).join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'DCruz_MS_Access_Import.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function clearRecords() {
+      if (confirm('Clear local browser records list? (Make sure you exported to OneDrive Excel/Access first.)')) {
+        localStorage.removeItem(STORAGE_KEY);
+        renderRecords();
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    // Initial Boot
+    updateRoute();
+    renderRecords();
+  </script>
+</body>
+</html>
