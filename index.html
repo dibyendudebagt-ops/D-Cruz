@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,6 +11,8 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- SheetJS (XLSX) for Direct Excel (.xlsx) Export -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- QRCode.js for reliable local QR code rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
@@ -39,20 +42,14 @@
       0%, 100% { opacity: 0.3; transform: scale(0.9); box-shadow: 0 0 5px #fde047; }
       50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 25px #fef08a, 0 0 50px #facc15; }
     }
-    .headlight-left {
-      animation: headlightFlashLeft 1.2s infinite ease-in-out;
-    }
-    .headlight-right {
-      animation: headlightFlashRight 1.2s infinite ease-in-out;
-      animation-delay: 0.2s;
-    }
+    .headlight-left { animation: headlightFlashLeft 1.2s infinite ease-in-out; }
+    .headlight-right { animation: headlightFlashRight 1.2s infinite ease-in-out; animation-delay: 0.2s; }
   </style>
 </head>
 <body class="bg-[#12161f] text-slate-100 min-h-screen">
 
   <!-- Top Navigation Header with Flashing Headlights -->
   <header class="bg-[#1a202c] border-b border-slate-800 text-white shadow-xl sticky top-0 z-50">
-    <!-- Two Flashing Headlights Bar on Top -->
     <div class="w-full bg-slate-950 py-1.5 px-4 flex items-center justify-between border-b border-slate-800/80">
       <div class="flex items-center gap-2">
         <div class="w-3.5 h-3.5 rounded-full bg-amber-300 headlight-left"></div>
@@ -343,7 +340,7 @@
 
           <!-- Google Pay QR & Direct Pay Box for 9612032475 -->
           <div id="gpayBox" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3">
-            <img id="upiQrImg" alt="Google Pay QR 9612032475" class="w-20 h-20 rounded-lg border border-slate-700 bg-white p-1 shrink-0" />
+            <div id="qrcode" class="w-20 h-20 rounded-lg border border-slate-700 bg-white p-1 shrink-0 flex items-center justify-center overflow-hidden"></div>
             <div class="space-y-1 text-xs">
               <div class="font-extrabold text-white">Pay D'Cruz via Google Pay</div>
               <div class="text-slate-300 font-semibold">GPay / UPI Mobile: <span class="font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-amber-400">9612032475</span></div>
@@ -434,6 +431,11 @@
 
     hybridSatelliteGroup.addTo(map);
 
+    // CRITICAL FIX: Ensure map tiles render correctly immediately after load
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+
     function setMapLayer(mode) {
       const btnSat = document.getElementById('btnSatView');
       const btnStr = document.getElementById('btnStreetView');
@@ -448,6 +450,7 @@
         btnStr.className = 'px-3 py-1.5 rounded-md bg-amber-500 text-slate-950 font-bold shadow-sm transition';
         btnSat.className = 'px-3 py-1.5 rounded-md text-slate-300 hover:text-white transition';
       }
+      setTimeout(() => map.invalidateSize(), 100);
     }
 
     const fromIcon = L.divIcon({
@@ -496,6 +499,7 @@
           routePolyline = L.polyline(routeCoordinates, { color: '#f59e0b', weight: 5, opacity: 0.92 }).addTo(map);
 
           map.fitBounds(routePolyline.getBounds(), { padding: [45, 45] });
+          setTimeout(() => map.invalidateSize(), 150);
           recalculateFare();
         }
       } catch (err) {
@@ -566,7 +570,7 @@
       );
     }
 
-    // --- 2. FARE CALCULATION ---
+    // --- 2. FARE CALCULATION & LOCAL QR CODE GENERATOR ---
     function getCurrentFareDetails() {
       const rate = parseFloat(document.querySelector('input[name="tariff"]:checked').value) || 10;
       const km = Math.max(0, parseFloat(document.getElementById('distanceInput').value) || 0);
@@ -589,8 +593,18 @@
 
       const upiUri = `upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=${totalFare}&cu=INR&tn=Alto%20K10%20Booking`;
       document.getElementById('upiDeepLink').href = upiUri;
-      document.getElementById('upiQrImg').src =
-        `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(upiUri)}`;
+
+      // Render QR code locally via qrcode.js
+      const qrContainer = document.getElementById('qrcode');
+      qrContainer.innerHTML = '';
+      new QRCode(qrContainer, {
+        text: upiUri,
+        width: 72,
+        height: 72,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
     }
 
     function toggleGPayBox() {
@@ -770,7 +784,7 @@
     }
 
     // --- 4. RECORD STORAGE & ONEDRIVE EXCEL / MS ACCESS EXPORT ---
-    const STORAGE_KEY = 'dcruz_onedrive_records_v3';
+    const STORAGE_KEY = 'dcruz_onedrive_records_v4';
 
     function getRecords() {
       try {
@@ -898,8 +912,7 @@
           r.fare, r.paymentMethod, r.status, 'dibyendu_deb@outlook.com'
         ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')
       );
-      const blob = new Blob([header.concat(lines).join('
-')], { type: 'text/csv;charset=utf-8;' });
+      const blob = new Blob([header.concat(lines).join('\n')], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -924,7 +937,9 @@
 
     // Boot
     updateRoute();
+    recalculateFare();
     renderRecords();
   </script>
 </body>
 </html>
+
