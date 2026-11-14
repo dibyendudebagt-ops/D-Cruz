@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -62,7 +61,7 @@
       </div>
     </div>
 
-    <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+<div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <div class="bg-amber-500 text-slate-950 p-2 rounded-xl font-extrabold shadow">
           <i data-lucide="car" class="w-6 h-6"></i>
@@ -173,7 +172,7 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <!-- Start Journey -->
+            <!-- Start Journey (Requires Customer Name & Number) -->
             <button type="button" id="btnStartLiveTrip" onclick="startLiveJourney()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow transition">
               <i data-lucide="navigation" class="w-3.5 h-3.5"></i> Start Journey
             </button>
@@ -183,7 +182,7 @@
               <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Cancel Booking
             </button>
 
-            <!-- End / Cancel En-Route when Journey is Active -->
+            <!-- Complete Journey & Automatically Save Payment -->
             <button type="button" id="btnCompleteTrip" onclick="completeLiveJourney()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-2 rounded-lg flex items-center gap-1.5 shadow transition">
               <i data-lucide="flag" class="w-3.5 h-3.5"></i> Complete Journey
             </button>
@@ -332,7 +331,7 @@
           <div>
             <label class="block text-xs font-bold text-slate-300 mb-1">Payment Method *</label>
             <select id="paymentMethod" onchange="toggleGPayBox()" class="w-full text-sm font-semibold border border-slate-700 rounded-lg px-3 py-2 bg-slate-900 text-white focus:ring-2 focus:ring-amber-500 focus:outline-none">
-              <option value="Google Pay (9612032475)" selected>Google Pay / UPI (9612032475)</option>
+              <option value="Google Pay / QR (9612032475)" selected>Google Pay / QR (9612032475)</option>
               <option value="Cash on Pickup">Cash on Pickup</option>
               <option value="Bank Transfer / UPI">Bank Transfer / Other UPI</option>
             </select>
@@ -431,7 +430,6 @@
 
     hybridSatelliteGroup.addTo(map);
 
-    // CRITICAL FIX: Ensure map tiles render correctly immediately after load
     setTimeout(() => {
       map.invalidateSize();
     }, 250);
@@ -594,7 +592,6 @@
       const upiUri = `upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=${totalFare}&cu=INR&tn=Alto%20K10%20Booking`;
       document.getElementById('upiDeepLink').href = upiUri;
 
-      // Render QR code locally via qrcode.js
       const qrContainer = document.getElementById('qrcode');
       qrContainer.innerHTML = '';
       new QRCode(qrContainer, {
@@ -615,6 +612,17 @@
     // --- 3. JOURNEY LIFECYCLE & CANCELLATION RULES ---
     function startLiveJourney() {
       if (routeCoordinates.length < 2) return;
+
+      // CRITICAL LOGIC: Require customer name and number before starting journey
+      const nameInput = document.getElementById('customerName').value.trim();
+      const phoneInput = document.getElementById('customerPhone').value.trim();
+
+      if (!nameInput || !phoneInput || phoneInput.length !== 10) {
+        alert('Please enter valid Customer Full Name and 10-digit Mobile Number before starting the journey.');
+        document.getElementById('customerName').focus();
+        return;
+      }
+
       isJourneyStarted = true;
 
       const btnCancelBefore = document.getElementById('btnCancelBeforeStart');
@@ -629,15 +637,34 @@
       document.getElementById('tripStatusBadge').innerHTML =
         '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Live Journey Active';
 
-      document.getElementById('activeStatusNotice').textContent = 'Customer details recorded.';
+      document.getElementById('activeStatusNotice').textContent = 'Customer details recorded. Journey in progress.';
 
-      if (activeBookingId) {
-        updateRecordStatus(activeBookingId, 'In Transit (Live)');
-      }
+      const fromLoc = document.getElementById('fromInput').value.trim();
+      const toLoc = document.getElementById('toInput').value.trim();
+      const { km, totalFare } = getCurrentFareDetails();
+      const paymentMethod = document.getElementById('paymentMethod').value;
+
+      // Automatically record active booking when journey starts
+      const records = getRecords();
+      const newId = Date.now();
+      activeBookingId = newId;
+
+      records.push({
+        id: newId,
+        timestamp: new Date().toLocaleString(),
+        bookedBy: nameInput,
+        contactNumber: phoneInput,
+        route: `${fromLoc} → ${toLoc} (${km.toFixed(1)} km)`,
+        fare: `₹${totalFare}`,
+        paymentMethod: paymentMethod,
+        status: 'In Transit (Live)'
+      });
+      saveRecords(records);
+      renderRecords();
 
       if (liveCarMarker) map.removeLayer(liveCarMarker);
       liveCarMarker = L.marker(routeCoordinates[0], { icon: carIcon }).addTo(map)
-        .bindPopup("<b>D'Cruz Alto K10</b><br>Live Journey Active").openPopup();
+        .bindPopup(`<b>D'Cruz Alto K10</b><br>Passenger: ${nameInput}`).openPopup();
 
       if (navigator.geolocation) {
         gpsWatchId = navigator.geolocation.watchPosition((pos) => {
@@ -682,54 +709,45 @@
         alert('Journey has already started. Use "Cancel En-Route (Full Fare)" if stopping mid-way.');
         return;
       }
+      const nameInput = document.getElementById('customerName').value.trim();
+      const phoneInput = document.getElementById('customerPhone').value.trim();
+
+      if (!nameInput || !phoneInput) {
+        alert('Please enter customer name and phone number before cancelling booking.');
+        return;
+      }
+
       const fromLoc = document.getElementById('fromInput').value.trim();
       const toLoc = document.getElementById('toInput').value.trim();
       const routeText = `${fromLoc} → ${toLoc}`;
+      const paymentMethod = document.getElementById('paymentMethod').value;
+      const { totalFare } = getCurrentFareDetails();
 
-      if (activeBookingId) {
-        const records = getRecords();
-        const rec = records.find(r => r.id === activeBookingId);
-        if (rec) {
-          rec.status = 'Cancelled (Before Journey Start - ₹0)';
-          saveRecords(records);
-          renderRecords();
-          alert(`Booking for ${rec.bookedBy} cancelled before journey start and recorded.`);
-          activeBookingId = null;
-        }
-      } else {
-        const nameInput = document.getElementById('customerName').value.trim() || 'Walk-in / Unconfirmed Customer';
-        const phoneInput = document.getElementById('customerPhone').value.trim() || 'N/A';
-        const paymentMethod = document.getElementById('paymentMethod').value;
-        const { totalFare } = getCurrentFareDetails();
-
-        const records = getRecords();
-        records.push({
-          id: Date.now(),
-          timestamp: new Date().toLocaleString(),
-          bookedBy: nameInput,
-          contactNumber: phoneInput,
-          route: routeText,
-          fare: `₹0 (Est. ₹${totalFare})`,
-          paymentMethod,
-          status: 'Cancelled (Before Journey Start)'
-        });
-        saveRecords(records);
-        renderRecords();
-        alert('Pre-journey cancellation recorded in ledger.');
-      }
+      const records = getRecords();
+      records.push({
+        id: Date.now(),
+        timestamp: new Date().toLocaleString(),
+        bookedBy: nameInput,
+        contactNumber: phoneInput,
+        route: routeText,
+        fare: `₹0 (Est. ₹${totalFare})`,
+        paymentMethod: paymentMethod,
+        status: 'Cancelled (Before Journey Start)'
+      });
+      saveRecords(records);
+      renderRecords();
 
       document.getElementById('tripStatusBadge').innerHTML =
         '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Cancelled Before Start';
+      alert('Pre-journey cancellation recorded in ledger.');
     }
 
     function cancelEnRoute() {
       if (!isJourneyStarted) return;
       const { totalFare } = getCurrentFareDetails();
-      const fromLoc = document.getElementById('fromInput').value.trim();
-      const toLoc = document.getElementById('toInput').value.trim();
-      const routeText = `${fromLoc} → ${toLoc}`;
+      const paymentMethod = document.getElementById('paymentMethod').value;
 
-      if (!confirm(`Journey is already in progress. Cancelling on route requires payment of FULL FARE (₹${totalFare}). Confirm en-route cancellation?`)) {
+      if (!confirm(`Journey is already in progress. Cancelling on route requires payment of FULL FARE (₹${totalFare}) via ${paymentMethod}. Confirm en-route cancellation?`)) {
         return;
       }
 
@@ -738,53 +756,50 @@
       document.getElementById('tripStatusBadge').innerHTML =
         '<span class="w-2 h-2 rounded-full bg-rose-500"></span> Cancelled On Route';
       document.getElementById('activeStatusNotice').textContent =
-        `Customer details recorded — Cancelled on route (Full Fare Applicable: ₹${totalFare}).`;
+        `Customer details & payment method (${paymentMethod}) automatically saved — Cancelled on route (Full Fare: ₹${totalFare}).`;
 
       if (activeBookingId) {
         const records = getRecords();
         const rec = records.find(r => r.id === activeBookingId);
         if (rec) {
           rec.fare = `₹${totalFare}`;
+          rec.paymentMethod = paymentMethod; // Automatically saved upon cancellation
           rec.status = `Cancelled On Route — Full Fare ₹${totalFare} Charged`;
           saveRecords(records);
           renderRecords();
         }
         activeBookingId = null;
-      } else {
-        const nameInput = document.getElementById('customerName').value.trim() || 'Active Trip Customer';
-        const phoneInput = document.getElementById('customerPhone').value.trim() || 'N/A';
-        const paymentMethod = document.getElementById('paymentMethod').value;
-        const records = getRecords();
-        records.push({
-          id: Date.now(),
-          timestamp: new Date().toLocaleString(),
-          bookedBy: nameInput,
-          contactNumber: phoneInput,
-          route: routeText,
-          fare: `₹${totalFare}`,
-          paymentMethod,
-          status: `Cancelled On Route — Full Fare ₹${totalFare} Charged`
-        });
-        saveRecords(records);
-        renderRecords();
       }
     }
 
     function completeLiveJourney() {
       stopTimersAndResetUI();
+      const paymentMethod = document.getElementById('paymentMethod').value;
+      const { totalFare } = getCurrentFareDetails();
+
       document.getElementById('tripStatusBadge').innerHTML =
         '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Destination Reached';
       document.getElementById('liveProgressBar').style.width = '100%';
       document.getElementById('liveProgressPct').textContent = '100% Arrived at Destination';
+      document.getElementById('activeStatusNotice').textContent =
+        `Journey completed successfully. Payment method (${paymentMethod}) automatically recorded.`;
 
       if (activeBookingId) {
-        updateRecordStatus(activeBookingId, 'Completed');
+        const records = getRecords();
+        const rec = records.find(r => r.id === activeBookingId);
+        if (rec) {
+          rec.paymentMethod = paymentMethod; // Automatically saved on end of journey
+          rec.status = `Completed (Paid via ${paymentMethod})`;
+          saveRecords(records);
+          renderRecords();
+        }
         activeBookingId = null;
       }
+      alert(`Journey completed! Payment of ₹${totalFare} via ${paymentMethod} automatically recorded in ledger.`);
     }
 
     // --- 4. RECORD STORAGE & ONEDRIVE EXCEL / MS ACCESS EXPORT ---
-    const STORAGE_KEY = 'dcruz_onedrive_records_v4';
+    const STORAGE_KEY = 'dcruz_onedrive_records_v5';
 
     function getRecords() {
       try {
@@ -796,16 +811,6 @@
 
     function saveRecords(records) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    }
-
-    function updateRecordStatus(id, newStatus) {
-      const records = getRecords();
-      const idx = records.findIndex(r => r.id === id);
-      if (idx !== -1) {
-        records[idx].status = newStatus;
-        saveRecords(records);
-        renderRecords();
-      }
     }
 
     function renderRecords() {
@@ -841,36 +846,7 @@
 
     function handleBookingSubmit(e) {
       e.preventDefault();
-      const bookedBy = document.getElementById('customerName').value.trim();
-      const contactNumber = document.getElementById('customerPhone').value.trim();
-      const paymentMethod = document.getElementById('paymentMethod').value;
-      const fromLoc = document.getElementById('fromInput').value.trim();
-      const toLoc = document.getElementById('toInput').value.trim();
-      const { km, totalFare } = getCurrentFareDetails();
-
-      if (!bookedBy || !contactNumber) return;
-
-      const newId = Date.now();
-      activeBookingId = newId;
-
-      const records = getRecords();
-      records.push({
-        id: newId,
-        timestamp: new Date().toLocaleString(),
-        bookedBy,
-        contactNumber,
-        route: `${fromLoc} → ${toLoc} (${km.toFixed(1)} km)`,
-        fare: `₹${totalFare}`,
-        paymentMethod,
-        status: 'Booked (Ready)'
-      });
-      saveRecords(records);
-      renderRecords();
-
-      document.getElementById('activeStatusNotice').textContent = 'Customer details recorded.';
-      document.getElementById('customerName').value = '';
-      document.getElementById('customerPhone').value = '';
-      alert(`Booking confirmed for ${bookedBy} (${fromLoc} → ${toLoc}, ₹${totalFare}). Ready for OneDrive save.`);
+      startLiveJourney();
     }
 
     function saveToOneDriveExcel() {
@@ -942,4 +918,3 @@
   </script>
 </body>
 </html>
-
