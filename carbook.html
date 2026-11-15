@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D'Cruz Car Rental | Alto K10 Booking &amp; Live Trip Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS & JS for Interactive Map + Satellite Layer -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- SheetJS (XLSX) for Direct Excel (.xlsx) Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- QRCode.js for reliable local QR code rendering on GitHub Pages -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #12161f; color: #f8fafc; }
+    #map { height: 390px; width: 100%; border-radius: 0.75rem; z-index: 1; background-color: #0f172a; }
+    @media (max-width: 640px) {
+      #map { height: 290px; }
+    }
+    .leaflet-container { font-family: 'Inter', sans-serif; background: #0f172a; }
+    .pulse-marker {
+      background: #ef4444;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.35);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+      70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    /* Headlight Flashing Animations */
+    @keyframes headlightFlashLeft {
+      0%, 100% { opacity: 0.3; transform: scale(0.9); box-shadow: 0 0 5px #fde047; }
+      50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 25px #fef08a, 0 0 50px #facc15; }
+    }
+    @keyframes headlightFlashRight {
+      0%, 100% { opacity: 0.3; transform: scale(0.9); box-shadow: 0 0 5px #fde047; }
+      50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 25px #fef08a, 0 0 50px #facc15; }
+    }
+    .headlight-left { animation: headlightFlashLeft 1.2s infinite ease-in-out; }
+    .headlight-right { animation: headlightFlashRight 1.2s infinite ease-in-out; animation-delay: 0.2s; }
+
+    /* Ensure QR canvas/img fits cleanly without broken image icon */
+    #qrcode img, #qrcode canvas {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: contain;
+      display: block;
+    }
+  </style>
+</head>
+<body class="bg-[#12161f] text-slate-100 min-h-screen overflow-x-hidden">
+
+  <!-- Custom Non-Blocking Toast Container -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- Custom Non-Blocking Confirm Modal -->
+  <div id="customConfirmModal" class="hidden fixed inset-0 z-[9998] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-[#1a202c] border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center gap-2.5 text-amber-400">
+        <i data-lucide="alert-circle" class="w-5 h-5 shrink-0"></i>
+        <h3 id="confirmModalTitle" class="text-base font-extrabold text-white">Confirm Action</h3>
+      </div>
+      <p id="confirmModalMessage" class="text-xs sm:text-sm text-slate-300 leading-relaxed"></p>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button type="button" id="confirmModalCancel" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          Cancel
+        </button>
+        <button type="button" id="confirmModalOk" class="px-4 py-2.5 rounded-xl text-xs font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Driver Admin WebAuthn Device Passkey Gate (DEVICE PASSKEY ONLY) -->
+  <div id="driverAuthModal" class="hidden fixed inset-0 z-[9997] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-[#1a202c] border border-amber-500/50 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="bg-amber-500/20 text-amber-400 p-2.5 rounded-xl border border-amber-500/30">
+            <i data-lucide="fingerprint" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-extrabold text-white">Driver Admin Passkey Gate</h3>
+            <p class="text-[11px] text-slate-400">Hardware Device Passkey Required (Fingerprint / Face / Screen Lock)</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeDriverAuthModal()" class="text-slate-400 hover:text-white p-2 rounded-xl bg-slate-900">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Incoming WhatsApp Booking Preview inside Auth Gate (if opened from WhatsApp link) -->
+      <div id="authIncomingPreview" class="hidden bg-emerald-950/50 border border-emerald-600/50 rounded-xl p-3 text-xs space-y-1">
+        <div class="font-extrabold text-emerald-300 flex items-center gap-1.5">
+          <i data-lucide="message-circle" class="w-4 h-4"></i> WhatsApp Trip Dispatch Detected
+        </div>
+        <div id="authIncomingDetails" class="text-slate-200 leading-relaxed"></div>
+      </div>
+
+      <!-- WebAuthn Platform Device Passkey Controls -->
+      <div class="bg-slate-900/95 border border-slate-800 rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+            <i data-lucide="shield-check" class="w-4 h-4"></i> Device Biometric Passkey
+          </span>
+          <span id="passkeyStatusBadge" class="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">Checking...</span>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Driver Admin access is strictly protected by your device's built-in biometric passkey (Fingerprint, Face ID, or Device Screen Lock).
+        </p>
+        <div class="space-y-2.5 pt-1">
+          <button type="button" id="btnUnlockPasskey" onclick="authenticateWithDevicePasskey()"
+            class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs sm:text-sm py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">
+            <i data-lucide="scan-face" class="w-4 h-4"></i> Unlock Driver Admin with Device Passkey
+          </button>
+          <button type="button" id="btnRegisterPasskeyModal" onclick="registerDevicePasskey()"
+            class="w-full bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs py-2.5 px-4 rounded-xl border border-emerald-700/40 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Register This Device as Admin Passkey
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Navigation Header with Flashing Headlights -->
+  <header class="bg-[#1a202c] border-b border-slate-800 text-white shadow-xl sticky top-0 z-50">
+    <div class="w-full bg-slate-950 py-1.5 px-4 flex items-center justify-between border-b border-slate-800/80">
+      <div class="flex items-center gap-2">
+        <div class="w-3 h-3 rounded-full bg-amber-300 headlight-left"></div>
+        <span class="text-[10px] font-mono tracking-widest text-amber-400 uppercase font-bold hidden sm:inline">D'Cruz Headlight L</span>
+      </div>
+      <div class="text-[10px] text-slate-400 font-mono tracking-wider text-center">
+        Alto K10 Hatchback • <span id="headerRoleTag" class="text-emerald-400 font-bold">CLIENT ONLINE BOOKING</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] font-mono tracking-widest text-amber-400 uppercase font-bold hidden sm:inline">D'Cruz Headlight R</span>
+        <div class="w-3 h-3 rounded-full bg-amber-300 headlight-right"></div>
+      </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-amber-500 text-slate-950 p-2 rounded-xl font-extrabold shadow">
+          <i data-lucide="car" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-base sm:text-xl font-extrabold tracking-tight text-white">
+            D'Cruz <span class="text-amber-400">@9612032475 / 8787865648</span>
+          </h1>
+          <p class="text-[11px] sm:text-xs text-slate-400">Alto K10 Hatchback • Max 2 Adults + 1 Kid • WhatsApp OTP Dispatch</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="tel:9612032475" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 transition shadow">
+          <i data-lucide="phone-call" class="w-3.5 h-3.5"></i> 9612032475
+        </a>
+        <a href="tel:8787865648" class="hidden sm:flex bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3 py-2 rounded-xl items-center gap-1.5 transition border border-slate-700">
+          <i data-lucide="phone" class="w-3.5 h-3.5"></i> 8787865648
+        </a>
+
+        <!-- Driver Admin Passkey Entry / Exit Button -->
+        <button type="button" id="btnDriverAdminToggle" onclick="handleDriverToggleClick()"
+          class="bg-slate-900 hover:bg-amber-500/20 text-amber-400 border border-amber-500/40 text-xs font-extrabold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition shadow">
+          <i data-lucide="fingerprint" class="w-3.5 h-3.5"></i>
+          <span id="driverToggleLabel">Driver Admin</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- DRIVER ADMIN COMMAND CENTER (STRICTLY HIDDEN IN CLIENT VIEW) -->
+  <section id="driverAdminDashboard" class="hidden max-w-7xl mx-auto px-4 pt-6 space-y-5">
+    <div class="bg-gradient-to-r from-slate-900 via-[#1a202c] to-slate-900 border-2 border-amber-500/50 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="bg-amber-500 text-slate-950 text-[11px] font-extrabold px-2.5 py-1 rounded-lg uppercase tracking-wider">Driver Admin</span>
+          <h2 class="text-base sm:text-lg font-extrabold text-white">Trip Control, WhatsApp OTP Start &amp; Fleet Lock</h2>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Manual Fleet Availability Lock Switch -->
+          <button type="button" id="btnManualLockToggle" onclick="toggleManualFleetLock()"
+            class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+            <i data-lucide="lock" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span id="manualLockLabel">Lock New Bookings</span>
+          </button>
+
+          <!-- Register Device Biometric Passkey -->
+          <button type="button" onclick="registerDevicePasskey()"
+            class="bg-slate-800 hover:bg-emerald-950 text-emerald-300 border border-emerald-700/50 text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+            <i data-lucide="fingerprint" class="w-3.5 h-3.5"></i> Register Passkey
+          </button>
+
+          <!-- Manual Unlock / Clear Active Trip Override -->
+          <button type="button" onclick="driverForceUnlockTrip()"
+            class="bg-slate-800 hover:bg-amber-950 text-amber-300 border border-amber-500/40 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Unlock / Clear Trip
+          </button>
+
+          <!-- Lock / Exit Admin View -->
+          <button type="button" onclick="logoutDriverAdmin()"
+            class="bg-rose-950 hover:bg-rose-900 text-rose-200 border border-rose-800 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+            <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Exit Driver View
+          </button>
+        </div>
+      </div>
+
+      <!-- Incoming WhatsApp Booking Request Card -->
+      <div id="incomingRequestCard" class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="space-y-2 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="requestStageBadge" class="inline-flex items-center gap-1.5 text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                No Pending Booking
+              </span>
+              <span id="requestTimestamp" class="text-[11px] text-slate-500 font-mono"></span>
+            </div>
+            <div id="requestSummaryText" class="text-xs sm:text-sm text-slate-300">
+              Tap the Driver Action Link inside your incoming WhatsApp booking message to load passenger details, route, fare, and start the trip with OTP verification.
+            </div>
+          </div>
+
+          <!-- Driver Accept / Reject Action Buttons -->
+          <div id="driverDecisionButtons" class="hidden flex flex-wrap items-center gap-2 shrink-0">
+            <button type="button" onclick="driverAcceptBooking()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow flex items-center gap-1.5 transition">
+              <i data-lucide="check-circle" class="w-4 h-4"></i> Accept Booking &amp; Lock Car
+            </button>
+            <button type="button" onclick="driverRejectBooking()" class="bg-rose-700 hover:bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow flex items-center gap-1.5 transition">
+              <i data-lucide="x-circle" class="w-4 h-4"></i> Reject Request
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Driver OTP Verification & Live Trip Telemetry Bar (Driver Only) -->
+      <div class="bg-slate-950 text-white p-4 rounded-xl border border-slate-800 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-4">
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Journey Status</span>
+              <span id="tripStatusBadge" class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Ready / Available
+              </span>
+            </div>
+            <div class="h-8 w-px bg-slate-800 hidden sm:block"></div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">WhatsApp Booking OTP</span>
+              <span id="adminExpectedOtp" class="text-sm font-mono font-extrabold text-amber-400">----</span>
+            </div>
+          </div>
+
+          <!-- En-Route / Completed Buttons -->
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="btnCompleteTrip" onclick="completeLiveJourney()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow transition">
+              <i data-lucide="flag" class="w-3.5 h-3.5"></i> Complete Journey &amp; Save Ledger
+            </button>
+            <button type="button" id="btnCancelEnRoute" onclick="cancelEnRoute()" class="hidden bg-rose-700 hover:bg-rose-600 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow transition">
+              <i data-lucide="alert-octagon" class="w-3.5 h-3.5"></i> Cancel En-Route (Full Fare)
+            </button>
+          </div>
+        </div>
+
+        <!-- Driver OTP Input Box -->
+        <div id="driverOtpBox" class="bg-slate-900 border border-amber-500/40 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="text-xs font-extrabold text-amber-400 flex items-center gap-1.5">
+              <i data-lucide="shield-check" class="w-4 h-4"></i> Start Journey via WhatsApp OTP
+            </div>
+            <div class="text-[11px] text-slate-300">Enter the 4-digit OTP received in the WhatsApp booking message (or tap Auto-Fill from WhatsApp) to start the trip.</div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="driverEnteredOtp" type="text" inputmode="numeric" maxlength="4" placeholder="4-digit OTP"
+              class="w-32 text-center font-mono font-bold text-sm bg-slate-950 text-amber-300 border border-slate-700 rounded-xl px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+            <button type="button" id="btnAutoFillWhatsappOtp" onclick="autoFillOtpFromWhatsapp()" class="hidden bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-600/40 font-bold text-xs px-3 py-2 rounded-xl transition">
+              Use WhatsApp OTP
+            </button>
+            <button type="button" onclick="verifyOtpAndStartJourney()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs px-4 py-2 rounded-xl shadow transition flex items-center gap-1.5">
+              <i data-lucide="play-circle" class="w-4 h-4"></i> Verify OTP &amp; Start Trip
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Progress Bar -->
+        <div id="liveProgressWrap" class="hidden pt-1">
+          <div class="flex justify-between text-[11px] font-semibold text-slate-400 mb-1">
+            <span>Live Vehicle Telemetry (Alto K10)</span>
+            <span id="liveProgressPct">0% Completed</span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div id="liveProgressBar" class="bg-amber-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN CONTENT: ROUTE MAP & CLIENT ONLINE BOOKING FORM -->
+  <main id="mainWorkspaceGrid" class="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Column: Interactive Route & Satellite Map -->
+    <section id="mapWorkspaceSection" class="lg:col-span-7 space-y-4">
+
+      <!-- Lockout Notice Banner (Visible to Client when Car is Busy/Locked) -->
+      <div id="lockoutBanner" class="hidden bg-rose-950/95 border border-rose-600 text-rose-200 px-4 py-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between gap-3 shadow-lg">
+        <div class="flex items-center gap-2.5">
+          <i data-lucide="lock" class="w-5 h-5 text-rose-400 shrink-0"></i>
+          <span id="lockoutText">Alto K10 is currently on an active trip. New bookings are temporarily locked until the current trip finishes.</span>
+        </div>
+      </div>
+
+      <div class="bg-[#1a202c] p-4 rounded-2xl shadow-lg border border-slate-800">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 id="mapSectionTitle" class="text-base font-bold text-white flex items-center gap-2">
+              <i data-lucide="satellite" class="w-5 h-5 text-amber-500"></i>
+              Journey From &amp; To Route Map
+            </h2>
+            <p id="mapSectionSubtitle" class="text-xs text-slate-400">Drag pins or tap map to set Pickup (From) &amp; Destination (To).</p>
+          </div>
+
+          <!-- Map Layer Switcher Buttons -->
+          <div class="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-xs font-semibold">
+            <button type="button" id="btnSatView" onclick="setMapLayer('satellite')" class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold shadow-sm transition">
+              Satellite View
+            </button>
+            <button type="button" id="btnStreetView" onclick="setMapLayer('street')" class="px-3 py-1.5 rounded-lg text-slate-300 hover:text-white transition">
+              Street Map
+            </button>
+          </div>
+        </div>
+
+        <!-- Client Route Editing Controls (HIDDEN IN DRIVER ADMIN VIEW) -->
+        <div id="clientRouteControlsWrap">
+          <!-- From / To Search Inputs -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <div class="relative">
+              <label class="block text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1">From (Pickup Point)</label>
+              <div class="flex gap-1.5">
+                <input id="fromInput" type="text" value="Agartala City Center, Tripura" placeholder="Enter pickup location..."
+                  class="w-full text-sm bg-slate-900 text-white border border-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                <button type="button" onclick="searchLocation('from')" title="Search Pickup" class="bg-slate-800 hover:bg-slate-700 text-white px-3 rounded-xl border border-slate-700">
+                  <i data-lucide="search" class="w-4 h-4"></i>
+                </button>
+                <button type="button" onclick="useMyGPS()" title="Use Current GPS" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 rounded-xl">
+                  <i data-lucide="locate-fixed" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="relative">
+              <label class="block text-[11px] font-bold uppercase tracking-wider text-rose-400 mb-1">To (Destination)</label>
+              <div class="flex gap-1.5">
+                <input id="toInput" type="text" value="Maharaja Bir Bikram Airport, Agartala" placeholder="Enter destination..."
+                  class="w-full text-sm bg-slate-900 text-white border border-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                <button type="button" onclick="searchLocation('to')" title="Search Destination" class="bg-slate-800 hover:bg-slate-700 text-white px-3 rounded-xl border border-slate-700">
+                  <i data-lucide="search" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Destination Presets -->
+          <div class="flex flex-wrap items-center gap-1.5 mb-3">
+            <span class="text-[11px] font-semibold text-slate-400 mr-1">Quick Destinations:</span>
+            <button type="button" onclick="setQuickDest('MBB Airport Agartala', 23.8869, 91.2404)" class="text-xs bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 px-2.5 py-1 rounded-full border border-slate-700 transition">MBB Airport</button>
+            <button type="button" onclick="setQuickDest('Agartala Railway Station', 23.7975, 91.2783)" class="text-xs bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 px-2.5 py-1 rounded-full border border-slate-700 transition">Railway Station</button>
+            <button type="button" onclick="setQuickDest('Udaipur Tripura Sundari Temple', 23.5161, 91.4984)" class="text-xs bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 px-2.5 py-1 rounded-full border border-slate-700 transition">Udaipur</button>
+            <button type="button" onclick="setQuickDest('Neermahal Melaghar', 23.4958, 91.3264)" class="text-xs bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 px-2.5 py-1 rounded-full border border-slate-700 transition">Neermahal</button>
+            <button type="button" onclick="setQuickDest('Dharmanagar, Tripura', 24.3746, 92.1678)" class="text-xs bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 px-2.5 py-1 rounded-full border border-slate-700 transition">Dharmanagar</button>
+          </div>
+        </div>
+
+        <!-- Driver Read-Only Active Route Summary Banner (VISIBLE ONLY IN DRIVER ADMIN VIEW) -->
+        <div id="driverActiveRouteBanner" class="hidden bg-slate-900/90 border border-slate-800 rounded-xl p-3 mb-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div>
+            <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">Assigned Pickup (From)</span>
+            <span id="driverReadonlyFrom" class="font-semibold text-white">Agartala City Center, Tripura</span>
+          </div>
+          <div>
+            <span class="text-[10px] font-bold uppercase tracking-wider text-rose-400 block">Assigned Destination (To)</span>
+            <span id="driverReadonlyTo" class="font-semibold text-white">Maharaja Bir Bikram Airport, Agartala</span>
+          </div>
+        </div>
+
+        <!-- Live Satellite Map Container -->
+        <div id="map" class="border border-slate-700 shadow-inner"></div>
+
+        <!-- Compact Route Distance & Duration Strip -->
+        <div class="mt-3 bg-slate-950 text-white px-4 py-3 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-4">
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Road Distance</span>
+              <span id="distanceDisplay" class="text-base sm:text-lg font-extrabold text-amber-400">12.4 km</span>
+            </div>
+            <div class="h-8 w-px bg-slate-800"></div>
+            <div>
+              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Est. Travel Time</span>
+              <span id="durationDisplay" class="text-sm font-bold text-white">24 mins</span>
+            </div>
+          </div>
+          <div id="mapDispatchHint" class="text-xs text-slate-400 flex items-center gap-1.5">
+            <i data-lucide="message-circle" class="w-4 h-4 text-emerald-400"></i>
+            <span>Booking &amp; OTP sent via WhatsApp to <strong class="text-slate-200">+91 96120 32475</strong></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Client Online Booking Form & WhatsApp Dispatch (STRICTLY CLIENT VIEW ONLY) -->
+    <section id="clientBookingSection" class="lg:col-span-5 space-y-4">
+      <div class="bg-[#1a202c] p-5 rounded-2xl shadow-lg border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-white">Passenger Online Booking</h2>
+            <p class="text-xs text-slate-400">Max 2 Adults + 1 Kid • Alto K10 Hatchback</p>
+          </div>
+          <span id="availabilityPill" class="bg-emerald-500/20 text-emerald-400 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-500/30">
+            Available Now
+          </span>
+        </div>
+
+        <!-- Tariff Selection -->
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">Select Tariff Plan</label>
+          <div class="grid grid-cols-1 gap-2">
+            <label class="flex items-center justify-between p-2.5 border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-900 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/10">
+              <div class="flex items-center gap-2.5">
+                <input type="radio" name="tariff" value="10" checked onchange="recalculateFare()" class="accent-amber-500 w-4 h-4" />
+                <div>
+                  <div class="text-xs font-bold text-white">Standard / Full Capacity</div>
+                  <div class="text-[11px] text-slate-400">Point-to-point full car rate</div>
+                </div>
+              </div>
+              <span class="text-sm font-extrabold text-amber-400">₹10/km</span>
+            </label>
+
+            <label class="flex items-center justify-between p-2.5 border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-900 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/10">
+              <div class="flex items-center gap-2.5">
+                <input type="radio" name="tariff" value="18" onchange="recalculateFare()" class="accent-amber-500 w-4 h-4" />
+                <div>
+                  <div class="text-xs font-bold text-white">Contract / Hiring (Non-AC)</div>
+                  <div class="text-[11px] text-slate-400">Custom contract charter without AC</div>
+                </div>
+              </div>
+              <span class="text-sm font-extrabold text-amber-400">₹18/km</span>
+            </label>
+
+            <label class="flex items-center justify-between p-2.5 border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-900 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/10">
+              <div class="flex items-center gap-2.5">
+                <input type="radio" name="tariff" value="20" onchange="recalculateFare()" class="accent-amber-500 w-4 h-4" />
+                <div>
+                  <div class="text-xs font-bold text-white">Contract / Hiring (AC On)</div>
+                  <div class="text-[11px] text-slate-400">Full comfort contract with AC</div>
+                </div>
+              </div>
+              <span class="text-sm font-extrabold text-amber-400">₹20/km</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Distance Override & Night Halt -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">Distance (km)</label>
+            <input id="distanceInput" type="number" step="0.1" min="1" value="12.4" oninput="recalculateFare()"
+              class="w-full text-sm font-semibold bg-slate-900 text-white border border-slate-700 rounded-xl px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">Night Halt (₹150/night)</label>
+            <input id="nightHaltInput" type="number" min="0" max="30" value="0" oninput="recalculateFare()"
+              class="w-full text-sm font-semibold bg-slate-900 text-white border border-slate-700 rounded-xl px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+        </div>
+
+        <!-- Passenger Count Validation (Max 2 Adults + 1 Kid) -->
+        <div class="grid grid-cols-2 gap-3 bg-slate-900 p-3 rounded-xl border border-slate-800">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-300 mb-1">Adults (Max 2)</label>
+            <select id="adultsCount" class="w-full text-sm border border-slate-700 rounded-xl px-2.5 py-1.5 bg-slate-950 text-white">
+              <option value="1">1 Adult</option>
+              <option value="2" selected>2 Adults</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-300 mb-1">Kids (Max 1)</label>
+            <select id="kidsCount" class="w-full text-sm border border-slate-700 rounded-xl px-2.5 py-1.5 bg-slate-950 text-white">
+              <option value="0">0 Kids</option>
+              <option value="1" selected>1 Kid</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Fare Summary Box -->
+        <div class="bg-slate-950 border border-slate-800 text-white p-4 rounded-xl space-y-1.5">
+          <div class="flex justify-between text-xs text-slate-400">
+            <span>Distance Charge (<span id="summaryKm">12.4</span> km × ₹<span id="summaryRate">10</span>)</span>
+            <span id="summaryBaseFare" class="text-slate-200">₹124</span>
+          </div>
+          <div class="flex justify-between text-xs text-slate-400">
+            <span>Night Halt (<span id="summaryNights">0</span> × ₹150)</span>
+            <span id="summaryNightFare" class="text-slate-200">₹0</span>
+          </div>
+          <div class="border-t border-slate-800 pt-2 flex justify-between items-center">
+            <span class="text-sm font-bold text-slate-200">Total Estimated Fare</span>
+            <span id="totalFareDisplay" class="text-2xl font-extrabold text-amber-400">₹124</span>
+          </div>
+        </div>
+
+        <!-- Client Passenger Booking Form -->
+        <form id="bookingForm" onsubmit="handleClientConfirmBooking(event)" class="space-y-3 pt-1">
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">Passenger Full Name *</label>
+            <input id="customerName" type="text" required placeholder="Enter your full name"
+              class="w-full text-sm bg-slate-900 text-white border border-slate-700 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">Contact Mobile Number (10-digit) *</label>
+            <input id="customerPhone" type="tel" required pattern="[0-9]{10}" maxlength="10" placeholder="10-digit mobile number"
+              class="w-full text-sm bg-slate-900 text-white border border-slate-700 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">Payment Method *</label>
+            <select id="paymentMethod" onchange="toggleGPayBox()" class="w-full text-sm font-semibold border border-slate-700 rounded-xl px-3 py-2.5 bg-slate-900 text-white focus:ring-2 focus:ring-amber-500 focus:outline-none">
+              <option value="Google Pay / QR (9612032475)" selected>Google Pay / QR (9612032475)</option>
+              <option value="Cash on Pickup">Cash on Pickup</option>
+              <option value="Bank Transfer / UPI">Bank Transfer / Other UPI</option>
+            </select>
+          </div>
+
+          <!-- Google Pay QR & Direct Pay Box for 9612032475 -->
+          <div id="gpayBox" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3">
+            <div id="qrcode" class="w-20 h-20 rounded-xl border border-slate-700 bg-white p-1.5 shrink-0 flex items-center justify-center overflow-hidden"></div>
+            <div class="space-y-1 text-xs">
+              <div class="font-extrabold text-white">Pay D'Cruz via Google Pay</div>
+              <div class="text-slate-300 font-semibold">GPay / UPI: <span class="font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-amber-400">9612032475</span></div>
+              <a id="upiDeepLink" href="#" class="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] transition">
+                <i data-lucide="smartphone" class="w-3 h-3"></i> Open Google Pay App
+              </a>
+            </div>
+          </div>
+
+          <!-- Confirm Booking & Open WhatsApp Button -->
+          <button type="submit" id="btnConfirmBooking" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-sm py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+            <i data-lucide="send" class="w-4 h-4"></i> Confirm Booking &amp; Send OTP via WhatsApp
+          </button>
+        </form>
+
+        <!-- Generated OTP Display Box (Shown to Passenger after booking) -->
+        <div id="passengerOtpDisplayBox" class="hidden bg-slate-950 border border-emerald-500/60 rounded-2xl p-4 text-center space-y-2">
+          <div class="text-xs text-emerald-400 font-bold uppercase tracking-wider">Generated Trip OTP (Sent to Driver via WhatsApp)</div>
+          <div id="generatedOtpText" class="text-3xl font-mono font-extrabold text-amber-400 tracking-widest">----</div>
+          <p class="text-[11px] text-slate-400">
+            Your booking and OTP have been formatted for WhatsApp. The driver will accept and start the trip directly from your WhatsApp message.
+          </p>
+          <div class="pt-1 flex flex-wrap justify-center gap-2">
+            <a id="reopenWhatsappLink" href="#" target="_blank" rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition">
+              <i data-lucide="message-circle" class="w-3.5 h-3.5"></i> Send on WhatsApp Again
+            </a>
+            <button type="button" id="btnCancelBeforeStart" onclick="cancelBeforeStart()"
+              class="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 font-bold text-xs px-3.5 py-2 rounded-xl border border-slate-700 transition">
+              <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Cancel Request
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ONEDRIVE CLOUD LEDGER SECTION (STRICTLY HIDDEN IN CLIENT VIEW; DRIVER ADMIN ONLY) -->
+  <section id="driverLedgerSection" class="hidden max-w-7xl mx-auto px-4 pb-12">
+    <div class="bg-[#1a202c] rounded-2xl shadow-lg border border-slate-800 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="cloud" class="w-4 h-4 text-blue-400"></i>
+            OneDrive Cloud Ledger — <span class="text-blue-400">dibyendu_deb@outlook.com</span>
+          </h3>
+          <p class="text-xs text-slate-400">Driver Admin Ledger: Customer, Contact, Route (From → To), Fare, Payment Method &amp; Cancellations.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" onclick="saveToOneDriveExcel()" class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm transition">
+            <i data-lucide="cloud-upload" class="w-4 h-4"></i> Save to OneDrive Excel (.xlsx)
+          </button>
+          <button type="button" onclick="exportToAccessCSV()" class="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm transition">
+            <i data-lucide="database" class="w-4 h-4"></i> Save MS Access (.csv)
+          </button>
+          <button type="button" onclick="clearRecords()" class="bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-300 text-xs font-semibold px-3 py-2.5 rounded-xl transition border border-slate-700">
+            Clear List
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-slate-900 text-slate-300 text-xs uppercase tracking-wider border-b border-slate-800">
+              <th class="py-2.5 px-3 font-bold">#</th>
+              <th class="py-2.5 px-3 font-bold">Date &amp; Time</th>
+              <th class="py-2.5 px-3 font-bold">Booked By</th>
+              <th class="py-2.5 px-3 font-bold">Contact</th>
+              <th class="py-2.5 px-3 font-bold">Journey Route (From → To)</th>
+              <th class="py-2.5 px-3 font-bold">Fare</th>
+              <th class="py-2.5 px-3 font-bold">Payment Method</th>
+              <th class="py-2.5 px-3 font-bold">Status / Notes</th>
+            </tr>
+          </thead>
+          <tbody id="recordsTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    lucide.createIcons();
+
+    // --- CONSTANTS & STATE KEYS ---
+    const DRIVER_WHATSAPP_NUMBER = '919612032475';
+    const STORAGE_KEY = 'dcruz_onedrive_records_v10';
+    const STATE_KEY = 'dcruz_active_state_v10';
+    const WEBAUTHN_CRED_KEY = 'dcruz_webauthn_cred_id_v10';
+
+    let isDriverAuthenticated = false;
+    let isJourneyStarted = false;
+    let activeBookingId = null;
+    let generatedOtpCode = null;
+    let currentBookingData = null;
+
+    // --- CUSTOM NON-BLOCKING TOAST & CONFIRM DIALOGS ---
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const styles = {
+        info: 'bg-slate-900 border-slate-700 text-slate-100',
+        success: 'bg-emerald-950/95 border-emerald-600 text-emerald-100',
+        warning: 'bg-amber-950/95 border-amber-500 text-amber-100',
+        error: 'bg-rose-950/95 border-rose-600 text-rose-100'
+      };
+      toast.className = `pointer-events-auto border px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold flex items-start gap-2.5 transition-all duration-300 ${styles[type] || styles.info}`;
+      toast.innerHTML = `<span class="leading-relaxed">${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 4500);
+    }
+
+    function showConfirmDialog(title, message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('customConfirmModal');
+        document.getElementById('confirmModalTitle').textContent = title;
+        document.getElementById('confirmModalMessage').textContent = message;
+        modal.classList.remove('hidden');
+
+        const btnOk = document.getElementById('confirmModalOk');
+        const btnCancel = document.getElementById('confirmModalCancel');
+
+        const cleanup = (result) => {
+          modal.classList.add('hidden');
+          btnOk.onclick = null;
+          btnCancel.onclick = null;
+          resolve(result);
+        };
+
+        btnOk.onclick = () => cleanup(true);
+        btnCancel.onclick = () => cleanup(false);
+      });
+    }
+
+    // --- PERSISTENT APP STATE (LOCKOUT & INCOMING WHATSAPP BOOKING SYNC) ---
+    function loadAppState() {
+      try {
+        return JSON.parse(localStorage.getItem(STATE_KEY)) || {
+          locked: false,
+          manualLock: false,
+          status: 'available', // 'available' | 'pending' | 'accepted' | 'in_transit'
+          booking: null
+        };
+      } catch {
+        return { locked: false, manualLock: false, status: 'available', booking: null };
+      }
+    }
+
+    function saveAppState(state) {
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
+      applyAppStateToUI();
+    }
+
+    // Parse incoming WhatsApp deep link payload (?booking=...&driver=1)
+    function checkIncomingUrlPayload() {
+      const params = new URLSearchParams(window.location.search);
+      const encodedBooking = params.get('booking');
+      const wantsDriver = params.get('driver') === '1';
+
+      if (encodedBooking) {
+        try {
+          const decodedJson = decodeURIComponent(escape(atob(encodedBooking)));
+          const payload = JSON.parse(decodedJson);
+          if (payload && payload.bookedBy && payload.otp) {
+            const state = loadAppState();
+            state.status = 'pending';
+            state.booking = payload;
+            saveAppState(state);
+
+            // Populate map coordinates & route labels from WhatsApp booking
+            if (payload.fromLat && payload.fromLng) {
+              fromMarker.setLatLng([payload.fromLat, payload.fromLng]);
+            }
+            if (payload.toLat && payload.toLng) {
+              toMarker.setLatLng([payload.toLat, payload.toLng]);
+            }
+            if (payload.fromLoc) document.getElementById('fromInput').value = payload.fromLoc;
+            if (payload.toLoc) document.getElementById('toInput').value = payload.toLoc;
+            updateRoute();
+
+            // Pre-fill OTP input for driver convenience once unlocked
+            document.getElementById('driverEnteredOtp').value = payload.otp;
+
+            // Populate preview inside Device Passkey Gate
+            const authPreview = document.getElementById('authIncomingPreview');
+            const authDetails = document.getElementById('authIncomingDetails');
+            if (authPreview && authDetails) {
+              authDetails.innerHTML = `
+                <div><strong>Passenger:</strong> ${escapeHtml(payload.bookedBy)} (${escapeHtml(payload.contactNumber)})</div>
+                <div><strong>Route:</strong> ${escapeHtml(payload.fromLoc)} → ${escapeHtml(payload.toLoc)}</div>
+                <div><strong>Fare:</strong> ${escapeHtml(payload.fare)} • <strong>WhatsApp OTP:</strong> <span class="font-mono font-bold text-amber-300">${escapeHtml(payload.otp)}</span></div>
+              `;
+              authPreview.classList.remove('hidden');
+            }
+          }
+        } catch (err) {
+          console.error('Failed to decode WhatsApp booking payload:', err);
+        }
+      }
+
+      if (wantsDriver && !isDriverAuthenticated) {
+        openDriverAuthModal();
+      }
+    }
+
+    // --- DRIVER ADMIN AUTHENTICATION (WEBAUTHN PLATFORM DEVICE PASSKEY ONLY) ---
+    function handleDriverToggleClick() {
+      if (isDriverAuthenticated) {
+        logoutDriverAdmin();
+      } else {
+        openDriverAuthModal();
+      }
+    }
+
+    function openDriverAuthModal() {
+      const modal = document.getElementById('driverAuthModal');
+      const badge = document.getElementById('passkeyStatusBadge');
+      const hasWebAuthn = !!(window.PublicKeyCredential && navigator.credentials);
+      const hasRegistered = !!localStorage.getItem(WEBAUTHN_CRED_KEY);
+
+      if (!hasWebAuthn) {
+        badge.textContent = 'WebAuthn Unavailable';
+        badge.className = 'text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700';
+      } else if (hasRegistered) {
+        badge.textContent = 'Device Passkey Linked';
+        badge.className = 'text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-700';
+      } else {
+        badge.textContent = 'First-Time Setup Ready';
+        badge.className = 'text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700';
+      }
+
+      modal.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeDriverAuthModal() {
+      document.getElementById('driverAuthModal').classList.add('hidden');
+    }
+
+    async function registerDevicePasskey() {
+      if (!window.PublicKeyCredential || !navigator.credentials) {
+        showToast('Device Passkey (WebAuthn) requires HTTPS (e.g., https://ibyendudebagt-ops.github.io/carbook.html) and a biometric-capable browser.', 'error');
+        return;
+      }
+      try {
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        const userId = new Uint8Array(16);
+        window.crypto.getRandomValues(userId);
+
+        const rpConfig = { name: "D'Cruz Car Rental Admin" };
+        if (window.location.hostname && window.location.hostname !== '') {
+          rpConfig.id = window.location.hostname;
+        }
+
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge,
+            rp: rpConfig,
+            user: {
+              id: userId,
+              name: 'dibyendu_deb@outlook.com',
+              displayName: "D'Cruz Driver Admin"
+            },
+            pubKeyCredParams: [
+              { type: 'public-key', alg: -7 },
+              { type: 'public-key', alg: -257 }
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              residentKey: 'preferred',
+              userVerification: 'required'
+            },
+            timeout: 60000
+          }
+        });
+
+        if (credential && credential.rawId) {
+          const credB64 = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+          localStorage.setItem(WEBAUTHN_CRED_KEY, credB64);
+          document.getElementById('passkeyStatusBadge').textContent = 'Device Passkey Linked';
+          showToast('Device Passkey registered! Driver Admin unlocked.', 'success');
+          grantDriverAccess();
+        }
+      } catch (err) {
+        showToast(`Passkey registration failed: ${err.message || 'Biometric verification cancelled or unsupported in this frame.'}`, 'error');
+      }
+    }
+
+    async function authenticateWithDevicePasskey() {
+      if (!window.PublicKeyCredential || !navigator.credentials) {
+        showToast('Device Passkey (WebAuthn) requires HTTPS and a biometric-enabled device.', 'error');
+        return;
+      }
+
+      const storedCred = localStorage.getItem(WEBAUTHN_CRED_KEY);
+      if (!storedCred) {
+        // First time on this device -> register platform biometric passkey immediately
+        await registerDevicePasskey();
+        return;
+      }
+
+      try {
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        const rawId = Uint8Array.from(atob(storedCred), c => c.charCodeAt(0));
+
+        const getOptions = {
+          challenge,
+          allowCredentials: [{ type: 'public-key', id: rawId }],
+          userVerification: 'required',
+          timeout: 60000
+        };
+        if (window.location.hostname && window.location.hostname !== '') {
+          getOptions.rpId = window.location.hostname;
+        }
+
+        const assertion = await navigator.credentials.get({ publicKey: getOptions });
+        if (assertion) {
+          grantDriverAccess();
+        }
+      } catch (err) {
+        showToast('Device passkey verification failed or cancelled. Tap "Register This Device" if using a new phone.', 'error');
+      }
+    }
+
+    function grantDriverAccess() {
+      isDriverAuthenticated = true;
+      closeDriverAuthModal();
+
+      // Show Driver Admin panels & strictly hide Client Booking Form and Client Route Inputs
+      document.getElementById('driverAdminDashboard').classList.remove('hidden');
+      document.getElementById('driverLedgerSection').classList.remove('hidden');
+      document.getElementById('clientBookingSection').classList.add('hidden');
+      document.getElementById('clientRouteControlsWrap').classList.add('hidden');
+      document.getElementById('driverActiveRouteBanner').classList.remove('hidden');
+      document.getElementById('mapDispatchHint').classList.add('hidden');
+
+      document.getElementById('mapSectionTitle').innerHTML =
+        '<i data-lucide="satellite" class="w-5 h-5 text-amber-500"></i> Live Trip Satellite Telemetry Map';
+      document.getElementById('mapSectionSubtitle').textContent =
+        'Read-only navigation & live Alto K10 GPS route monitor.';
+
+      // Disable map pin dragging in Driver Admin mode
+      if (fromMarker && fromMarker.dragging) fromMarker.dragging.disable();
+      if (toMarker && toMarker.dragging) toMarker.dragging.disable();
+
+      // Expand map section cleanly to full width in Driver Admin view
+      const mapSec = document.getElementById('mapWorkspaceSection');
+      mapSec.classList.remove('lg:col-span-7');
+      mapSec.classList.add('lg:col-span-12');
+
+      document.getElementById('headerRoleTag').textContent = 'DRIVER ADMIN MODE';
+      document.getElementById('headerRoleTag').className = 'text-amber-400 font-extrabold';
+
+      const toggleBtn = document.getElementById('btnDriverAdminToggle');
+      toggleBtn.className = 'bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition shadow';
+      document.getElementById('driverToggleLabel').textContent = 'Exit Driver View';
+
+      applyAppStateToUI();
+      renderRecords();
+      lucide.createIcons();
+      setTimeout(() => map.invalidateSize(), 200);
+      showToast('Driver Admin unlocked via Device Passkey.', 'success');
+    }
+
+    function logoutDriverAdmin() {
+      isDriverAuthenticated = false;
+
+      // Strictly hide all Driver Admin panels & restore Client Booking Form and Route Inputs
+      document.getElementById('driverAdminDashboard').classList.add('hidden');
+      document.getElementById('driverLedgerSection').classList.add('hidden');
+      document.getElementById('clientBookingSection').classList.remove('hidden');
+      document.getElementById('clientRouteControlsWrap').classList.remove('hidden');
+      document.getElementById('driverActiveRouteBanner').classList.add('hidden');
+      document.getElementById('mapDispatchHint').classList.remove('hidden');
+
+      document.getElementById('mapSectionTitle').innerHTML =
+        '<i data-lucide="satellite" class="w-5 h-5 text-amber-500"></i> Journey From &amp; To Route Map';
+      document.getElementById('mapSectionSubtitle').textContent =
+        'Drag pins or tap map to set Pickup (From) & Destination (To).';
+
+      // Re-enable map pin dragging for client route selection if no trip is active
+      if (!isJourneyStarted) {
+        if (fromMarker && fromMarker.dragging) fromMarker.dragging.enable();
+        if (toMarker && toMarker.dragging) toMarker.dragging.enable();
+      }
+
+      // Restore 7/5 split grid for Client View
+      const mapSec = document.getElementById('mapWorkspaceSection');
+      mapSec.classList.remove('lg:col-span-12');
+      mapSec.classList.add('lg:col-span-7');
+
+      document.getElementById('headerRoleTag').textContent = 'CLIENT ONLINE BOOKING';
+      document.getElementById('headerRoleTag').className = 'text-emerald-400 font-bold';
+
+      const toggleBtn = document.getElementById('btnDriverAdminToggle');
+      toggleBtn.className = 'bg-slate-900 hover:bg-amber-500/20 text-amber-400 border border-amber-500/40 text-xs font-extrabold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition shadow';
+      document.getElementById('driverToggleLabel').textContent = 'Driver Admin';
+
+      lucide.createIcons();
+      setTimeout(() => map.invalidateSize(), 200);
+      showToast('Switched to Client Online Booking view.', 'info');
+    }
+
+    async function driverForceUnlockTrip() {
+      const confirmed = await showConfirmDialog(
+        'Unlock / Clear Active Trip',
+        'Reset active trip status, stop live tracking, and unlock new online bookings immediately?'
+      );
+      if (!confirmed) return;
+
+      stopTimersAndResetDriverControls();
+      activeBookingId = null;
+      generatedOtpCode = null;
+      currentBookingData = null;
+      document.getElementById('passengerOtpDisplayBox').classList.add('hidden');
+      document.getElementById('liveProgressWrap').classList.add('hidden');
+
+      saveAppState({
+        locked: false,
+        manualLock: false,
+        status: 'available',
+        booking: null
+      });
+
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Ready / Available';
+      showToast('Active trip cleared and fleet unlocked for new bookings.', 'success');
+    }
+
+    // --- SYNCHRONIZE UI WITH LOCKOUT & BOOKING STATE ---
+    function applyAppStateToUI() {
+      const state = loadAppState();
+      const isLocked = state.locked || state.manualLock || state.status === 'accepted' || state.status === 'in_transit';
+
+      const btnConfirm = document.getElementById('btnConfirmBooking');
+      const lockoutBanner = document.getElementById('lockoutBanner');
+      const lockoutText = document.getElementById('lockoutText');
+      const availPill = document.getElementById('availabilityPill');
+      const manualLockLabel = document.getElementById('manualLockLabel');
+
+      // Update Client Booking Lockout State
+      if (isLocked) {
+        btnConfirm.disabled = true;
+        btnConfirm.className = 'w-full bg-slate-800 text-slate-500 font-extrabold text-sm py-3.5 rounded-xl shadow-inner cursor-not-allowed flex items-center justify-center gap-2';
+        btnConfirm.innerHTML = '<i data-lucide="lock" class="w-4 h-4"></i> Booking Locked (Trip Active)';
+
+        availPill.textContent = 'En-Route / Busy';
+        availPill.className = 'bg-rose-500/20 text-rose-400 text-xs font-bold px-2.5 py-1 rounded-full border border-rose-500/30';
+
+        const activeDest = state.booking ? state.booking.toLoc : 'destination';
+        lockoutText.innerHTML = state.manualLock && !state.booking
+          ? 'Driver has temporarily paused new online bookings. Please call 9612032475 for direct inquiry.'
+          : `Alto K10 is currently active on a trip (${escapeHtml(activeDest)}). Online booking is locked until trip completion.`;
+        lockoutBanner.classList.remove('hidden');
+      } else {
+        btnConfirm.disabled = false;
+        btnConfirm.className = 'w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-sm py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2';
+        btnConfirm.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Confirm Booking &amp; Send OTP via WhatsApp';
+
+        availPill.textContent = 'Available Now';
+        availPill.className = 'bg-emerald-500/20 text-emerald-400 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-500/30';
+        lockoutBanner.classList.add('hidden');
+      }
+
+      if (manualLockLabel) {
+        manualLockLabel.textContent = state.manualLock ? 'Unlock Bookings' : 'Lock New Bookings';
+      }
+
+      // Update Driver Admin Incoming Request Card
+      const reqBadge = document.getElementById('requestStageBadge');
+      const reqTime = document.getElementById('requestTimestamp');
+      const reqSummary = document.getElementById('requestSummaryText');
+      const decisionBtns = document.getElementById('driverDecisionButtons');
+      const expectedOtpEl = document.getElementById('adminExpectedOtp');
+      const btnAutoFill = document.getElementById('btnAutoFillWhatsappOtp');
+      const readonlyFromEl = document.getElementById('driverReadonlyFrom');
+      const readonlyToEl = document.getElementById('driverReadonlyTo');
+
+      if (state.booking) {
+        currentBookingData = state.booking;
+        generatedOtpCode = state.booking.otp;
+        expectedOtpEl.textContent = state.booking.otp;
+        reqTime.textContent = state.booking.timestamp || '';
+        if (btnAutoFill) btnAutoFill.classList.remove('hidden');
+        if (readonlyFromEl) readonlyFromEl.textContent = state.booking.fromLoc || document.getElementById('fromInput').value;
+        if (readonlyToEl) readonlyToEl.textContent = state.booking.toLoc || document.getElementById('toInput').value;
+
+        reqSummary.innerHTML = `
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+            <div><span class="text-slate-400">Passenger:</span> <strong class="text-white">${escapeHtml(state.booking.bookedBy)}</strong> (<a href="tel:${escapeHtml(state.booking.contactNumber)}" class="text-amber-400 underline">${escapeHtml(state.booking.contactNumber)}</a>)</div>
+            <div><span class="text-slate-400">Passengers:</span> <strong class="text-slate-200">${escapeHtml(state.booking.passengers || '2 Adults, 1 Kid')}</strong></div>
+            <div class="sm:col-span-2"><span class="text-slate-400">Route:</span> <strong class="text-emerald-300">${escapeHtml(state.booking.route)}</strong></div>
+            <div><span class="text-slate-400">Est. Fare:</span> <strong class="text-amber-400">${escapeHtml(state.booking.fare)}</strong></div>
+            <div><span class="text-slate-400">Payment:</span> <strong class="text-slate-200">${escapeHtml(state.booking.paymentMethod)}</strong></div>
+          </div>
+        `;
+
+        if (state.status === 'pending') {
+          reqBadge.textContent = 'New WhatsApp Booking Request';
+          reqBadge.className = 'inline-flex items-center gap-1.5 text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+          decisionBtns.classList.remove('hidden');
+        } else if (state.status === 'accepted') {
+          reqBadge.textContent = 'Accepted — Ready for OTP Start';
+          reqBadge.className = 'inline-flex items-center gap-1.5 text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+          decisionBtns.classList.add('hidden');
+        } else if (state.status === 'in_transit') {
+          reqBadge.textContent = 'OTP Verified — Trip In Progress';
+          reqBadge.className = 'inline-flex items-center gap-1.5 text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40';
+          decisionBtns.classList.add('hidden');
+        }
+      } else {
+        expectedOtpEl.textContent = '----';
+        reqTime.textContent = '';
+        if (btnAutoFill) btnAutoFill.classList.add('hidden');
+        if (readonlyFromEl) readonlyFromEl.textContent = document.getElementById('fromInput').value;
+        if (readonlyToEl) readonlyToEl.textContent = document.getElementById('toInput').value;
+        reqBadge.textContent = 'No Pending Booking';
+        reqBadge.className = 'inline-flex items-center gap-1.5 text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300';
+        reqSummary.textContent = 'Tap the Driver Action Link inside your incoming WhatsApp booking message to load passenger details, route, fare, and start the trip with OTP verification.';
+        decisionBtns.classList.add('hidden');
+      }
+
+      lucide.createIcons();
+    }
+
+    function autoFillOtpFromWhatsapp() {
+      const state = loadAppState();
+      if (state.booking && state.booking.otp) {
+        document.getElementById('driverEnteredOtp').value = state.booking.otp;
+        showToast('WhatsApp OTP filled. Tap "Verify OTP & Start Trip" to begin.', 'info');
+      }
+    }
+
+    function toggleManualFleetLock() {
+      const state = loadAppState();
+      state.manualLock = !state.manualLock;
+      saveAppState(state);
+      showToast(state.manualLock ? 'Fleet locked manually. Client booking button disabled.' : 'Fleet unlocked. Clients can now book online.', 'info');
+    }
+
+    // --- DRIVER ACCEPT / REJECT HANDLERS ---
+    function driverAcceptBooking() {
+      const state = loadAppState();
+      if (!state.booking) return;
+      state.status = 'accepted';
+      state.locked = true;
+      saveAppState(state);
+
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Booking Accepted — Verify OTP to Start Trip';
+      showToast(`Booking accepted for ${state.booking.bookedBy}. Further bookings are now locked.`, 'success');
+    }
+
+    async function driverRejectBooking() {
+      const state = loadAppState();
+      if (!state.booking) return;
+      const confirmed = await showConfirmDialog(
+        'Reject Booking Request',
+        `Reject booking request from ${state.booking.bookedBy} (${state.booking.route}) and log as Rejected in the ledger?`
+      );
+      if (!confirmed) return;
+
+      const records = getRecords();
+      records.push({
+        id: Date.now(),
+        timestamp: new Date().toLocaleString(),
+        bookedBy: state.booking.bookedBy,
+        contactNumber: state.booking.contactNumber,
+        route: state.booking.route,
+        fare: `₹0 (Est. ${state.booking.fare})`,
+        paymentMethod: state.booking.paymentMethod,
+        status: 'Rejected by Driver'
+      });
+      saveRecords(records);
+      renderRecords();
+
+      generatedOtpCode = null;
+      currentBookingData = null;
+      document.getElementById('passengerOtpDisplayBox').classList.add('hidden');
+
+      saveAppState({
+        locked: false,
+        manualLock: state.manualLock,
+        status: 'available',
+        booking: null
+      });
+
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Ready / Available';
+      showToast('Booking rejected and recorded in ledger. System unlocked.', 'warning');
+    }
+
+    // --- 1. SATELLITE & STREET MAP SETUP ---
+    const defaultFrom = [23.8315, 91.2868]; // Agartala City Center
+    const defaultTo   = [23.8869, 91.2404]; // MBB Airport Agartala
+
+    const map = L.map('map', { zoomControl: true }).setView([23.858, 91.265], 12);
+
+    const satelliteImagery = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19, attribution: 'Tiles &copy; Esri' }
+    );
+    const satelliteLabels = L.tileLayer(
+      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19 }
+    );
+    const satelliteRoads = L.tileLayer(
+      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19 }
+    );
+    const hybridSatelliteGroup = L.layerGroup([satelliteImagery, satelliteRoads, satelliteLabels]);
+
+    const streetLayer = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 19, attribution: '&copy; OpenStreetMap' }
+    );
+
+    hybridSatelliteGroup.addTo(map);
+    setTimeout(() => map.invalidateSize(), 300);
+    window.addEventListener('resize', () => map.invalidateSize());
+
+    function setMapLayer(mode) {
+      const btnSat = document.getElementById('btnSatView');
+      const btnStr = document.getElementById('btnStreetView');
+      if (mode === 'satellite') {
+        map.removeLayer(streetLayer);
+        hybridSatelliteGroup.addTo(map);
+        btnSat.className = 'px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold shadow-sm transition';
+        btnStr.className = 'px-3 py-1.5 rounded-lg text-slate-300 hover:text-white transition';
+      } else {
+        map.removeLayer(hybridSatelliteGroup);
+        streetLayer.addTo(map);
+        btnStr.className = 'px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold shadow-sm transition';
+        btnSat.className = 'px-3 py-1.5 rounded-lg text-slate-300 hover:text-white transition';
+      }
+      setTimeout(() => map.invalidateSize(), 150);
+    }
+
+    const fromIcon = L.divIcon({
+      html: '<div style="background:#10b981;color:#fff;font-weight:800;font-size:10px;padding:3px 7px;border-radius:999px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);">FROM</div>',
+      className: '', iconSize: [46, 22], iconAnchor: [23, 11]
+    });
+    const toIcon = L.divIcon({
+      html: '<div style="background:#e11d48;color:#fff;font-weight:800;font-size:10px;padding:3px 7px;border-radius:999px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);">TO</div>',
+      className: '', iconSize: [36, 22], iconAnchor: [18, 11]
+    });
+    const carIcon = L.divIcon({
+      html: '<div class="pulse-marker" style="width:18px;height:18px;"></div>',
+      className: '', iconSize: [18, 18], iconAnchor: [9, 9]
+    });
+
+    const fromMarker = L.marker(defaultFrom, { draggable: true, icon: fromIcon }).addTo(map);
+    const toMarker   = L.marker(defaultTo,   { draggable: true, icon: toIcon }).addTo(map);
+    let routePolyline = null;
+    let routeCoordinates = [];
+    let liveCarMarker = null;
+    let liveSimulationTimer = null;
+    let gpsWatchId = null;
+
+    async function updateRoute() {
+      if (isJourneyStarted) return;
+      const start = fromMarker.getLatLng();
+      const end   = toMarker.getLatLng();
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const km = (route.distance / 1000).toFixed(1);
+          const mins = Math.max(1, Math.round(route.duration / 60));
+
+          document.getElementById('distanceDisplay').textContent = `${km} km`;
+          document.getElementById('durationDisplay').textContent = `${mins} mins`;
+          document.getElementById('distanceInput').value = km;
+
+          routeCoordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          if (routePolyline) map.removeLayer(routePolyline);
+          routePolyline = L.polyline(routeCoordinates, { color: '#f59e0b', weight: 5, opacity: 0.92 }).addTo(map);
+
+          map.fitBounds(routePolyline.getBounds(), { padding: [45, 45] });
+          setTimeout(() => map.invalidateSize(), 150);
+          recalculateFare();
+        }
+      } catch (err) {
+        const distMeters = map.distance(start, end);
+        const km = ((distMeters / 1000) * 1.25).toFixed(1);
+        document.getElementById('distanceDisplay').textContent = `${km} km`;
+        document.getElementById('distanceInput').value = km;
+        routeCoordinates = [[start.lat, start.lng], [end.lat, end.lng]];
+        if (routePolyline) map.removeLayer(routePolyline);
+        routePolyline = L.polyline(routeCoordinates, { color: '#f59e0b', weight: 4, dashArray: '6,6' }).addTo(map);
+        recalculateFare();
+      }
+    }
+
+    fromMarker.on('dragend', updateRoute);
+    toMarker.on('dragend', updateRoute);
+
+    map.on('click', (e) => {
+      if (isJourneyStarted || isDriverAuthenticated) return;
+      toMarker.setLatLng(e.latlng);
+      document.getElementById('toInput').value = `Pinned Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`;
+      updateRoute();
+    });
+
+    async function searchLocation(type) {
+      if (isJourneyStarted) return;
+      const inputEl = document.getElementById(type === 'from' ? 'fromInput' : 'toInput');
+      const query = inputEl.value.trim();
+      if (!query) return;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+        const results = await res.json();
+        if (results && results.length > 0) {
+          const lat = parseFloat(results[0].lat);
+          const lon = parseFloat(results[0].lon);
+          if (type === 'from') fromMarker.setLatLng([lat, lon]);
+          else toMarker.setLatLng([lat, lon]);
+          updateRoute();
+        } else {
+          showToast('Location not found. Try adding city or state name.', 'warning');
+        }
+      } catch (e) {
+        showToast('Unable to search location right now.', 'error');
+      }
+    }
+
+    function setQuickDest(label, lat, lng) {
+      if (isJourneyStarted) return;
+      document.getElementById('toInput').value = label;
+      toMarker.setLatLng([lat, lng]);
+      updateRoute();
+    }
+
+    function useMyGPS() {
+      if (isJourneyStarted) return;
+      if (!navigator.geolocation) {
+        showToast('Geolocation is not supported by your browser.', 'error');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          fromMarker.setLatLng([latitude, longitude]);
+          document.getElementById('fromInput').value = `My Live GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+          updateRoute();
+        },
+        () => showToast('Please allow location access in your browser.', 'warning')
+      );
+    }
+
+    // --- 2. FARE CALCULATION & LOCAL QR CODE GENERATOR ---
+    function getCurrentFareDetails() {
+      const tariffEl = document.querySelector('input[name="tariff"]:checked');
+      const rate = parseFloat(tariffEl.value) || 10;
+      const tariffLabel = rate === 10 ? 'Standard (₹10/km)' : rate === 18 ? 'Contract Non-AC (₹18/km)' : 'Contract AC (₹20/km)';
+      const km = Math.max(0, parseFloat(document.getElementById('distanceInput').value) || 0);
+      const nights = Math.max(0, parseInt(document.getElementById('nightHaltInput').value, 10) || 0);
+      const baseFare = Math.round(km * rate);
+      const nightFare = nights * 150;
+      const totalFare = baseFare + nightFare;
+      return { rate, tariffLabel, km, nights, baseFare, nightFare, totalFare };
+    }
+
+    function recalculateFare() {
+      const { rate, km, nights, baseFare, nightFare, totalFare } = getCurrentFareDetails();
+
+      document.getElementById('summaryKm').textContent = km.toFixed(1);
+      document.getElementById('summaryRate').textContent = rate;
+      document.getElementById('summaryBaseFare').textContent = `₹${baseFare}`;
+      document.getElementById('summaryNights').textContent = nights;
+      document.getElementById('summaryNightFare').textContent = `₹${nightFare}`;
+      document.getElementById('totalFareDisplay').textContent = `₹${totalFare}`;
+
+      const upiUri = `upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=${totalFare}&cu=INR&tn=Alto%20K10%20Booking`;
+      document.getElementById('upiDeepLink').href = upiUri;
+
+      const qrContainer = document.getElementById('qrcode');
+      if (qrContainer && typeof QRCode !== 'undefined') {
+        qrContainer.innerHTML = '';
+        new QRCode(qrContainer, {
+          text: upiUri,
+          width: 72,
+          height: 72,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+    }
+
+    function toggleGPayBox() {
+      const method = document.getElementById('paymentMethod').value;
+      document.getElementById('gpayBox').style.display = method.includes('Google Pay') ? 'flex' : 'none';
+    }
+
+    // --- 3. CLIENT ONLINE BOOKING -> WHATSAPP OTP DISPATCH ---
+    function buildWhatsAppBookingUrl(bookingPayload) {
+      const baseUrl = window.location.href.split('?')[0];
+      const encodedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(bookingPayload))));
+      const driverStartLink = `${baseUrl}?driver=1&booking=${encodeURIComponent(encodedPayload)}`;
+
+      const messageLines = [
+        `*D'CRUZ CAR RENTAL (ALTO K10) - NEW BOOKING*`,
+        `--------------------------------`,
+        `*Passenger:* ${bookingPayload.bookedBy}`,
+        `*Mobile:* ${bookingPayload.contactNumber}`,
+        `*Passengers:* ${bookingPayload.passengers}`,
+        `*From:* ${bookingPayload.fromLoc}`,
+        `*To:* ${bookingPayload.toLoc}`,
+        `*Distance:* ${bookingPayload.km} km (${bookingPayload.tariffLabel})`,
+        `*Night Halts:* ${bookingPayload.nights}`,
+        `*Est. Total Fare:* ${bookingPayload.fare}`,
+        `*Payment:* ${bookingPayload.paymentMethod}`,
+        `*TRIP START OTP:* ${bookingPayload.otp}`,
+        `--------------------------------`,
+        `Driver Accept & Start Trip Link:`,
+        driverStartLink
+      ];
+
+      return `https://wa.me/${DRIVER_WHATSAPP_NUMBER}?text=${encodeURIComponent(messageLines.join('\n'))}`;
+    }
+
+    function handleClientConfirmBooking(e) {
+      e.preventDefault();
+      const state = loadAppState();
+      if (state.locked || state.manualLock || state.status === 'accepted' || state.status === 'in_transit') {
+        showToast('Car is currently locked on an active trip. Please try again later.', 'error');
+        return;
+      }
+
+      const bookedBy = document.getElementById('customerName').value.trim();
+      const contactNumber = document.getElementById('customerPhone').value.trim();
+
+      if (!bookedBy || !contactNumber || contactNumber.length !== 10) {
+        showToast('Please enter valid Passenger Name and 10-digit Mobile Number.', 'error');
+        document.getElementById('customerName').focus();
+        return;
+      }
+
+      generatedOtpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+      const fromLoc = document.getElementById('fromInput').value.trim();
+      const toLoc = document.getElementById('toInput').value.trim();
+      const adults = document.getElementById('adultsCount').value;
+      const kids = document.getElementById('kidsCount').value;
+      const { tariffLabel, km, nights, totalFare } = getCurrentFareDetails();
+      const paymentMethod = document.getElementById('paymentMethod').value;
+      const startCoords = fromMarker.getLatLng();
+      const endCoords = toMarker.getLatLng();
+
+      currentBookingData = {
+        bookedBy,
+        contactNumber,
+        passengers: `${adults} Adult(s), ${kids} Kid(s)`,
+        fromLoc,
+        toLoc,
+        fromLat: startCoords.lat,
+        fromLng: startCoords.lng,
+        toLat: endCoords.lat,
+        toLng: endCoords.lng,
+        km: km.toFixed(1),
+        tariffLabel,
+        nights,
+        route: `${fromLoc} → ${toLoc} (${km.toFixed(1)} km)`,
+        fare: `₹${totalFare}`,
+        paymentMethod,
+        otp: generatedOtpCode,
+        timestamp: new Date().toLocaleString()
+      };
+
+      const whatsappUrl = buildWhatsAppBookingUrl(currentBookingData);
+
+      // Save pending booking to shared local state
+      saveAppState({
+        locked: false,
+        manualLock: state.manualLock,
+        status: 'pending',
+        booking: currentBookingData
+      });
+
+      document.getElementById('generatedOtpText').textContent = generatedOtpCode;
+      document.getElementById('reopenWhatsappLink').href = whatsappUrl;
+      document.getElementById('passengerOtpDisplayBox').classList.remove('hidden');
+
+      showToast(`OTP ${generatedOtpCode} generated! Opening WhatsApp to send booking & OTP to driver...`, 'success');
+
+      // Open WhatsApp directly to send booking details & OTP to driver
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    }
+
+    // --- 4. DRIVER OTP VERIFICATION & LIVE JOURNEY EXECUTION ---
+    function verifyOtpAndStartJourney() {
+      const state = loadAppState();
+      const activeReq = state.booking || currentBookingData;
+
+      if (!activeReq || !activeReq.otp) {
+        showToast('No active WhatsApp booking request found. Open the link from the passenger WhatsApp message first.', 'warning');
+        return;
+      }
+
+      const enteredOtp = document.getElementById('driverEnteredOtp').value.trim();
+      if (!enteredOtp) {
+        showToast('Please enter the 4-digit OTP from the WhatsApp message.', 'warning');
+        document.getElementById('driverEnteredOtp').focus();
+        return;
+      }
+
+      if (enteredOtp !== String(activeReq.otp)) {
+        showToast('Invalid OTP entered. Match the 4-digit OTP shown in the WhatsApp booking message.', 'error');
+        return;
+      }
+
+      // OTP Verified -> Lock further bookings & begin live journey
+      isJourneyStarted = true;
+      currentBookingData = activeReq;
+      generatedOtpCode = activeReq.otp;
+
+      saveAppState({
+        locked: true,
+        manualLock: state.manualLock,
+        status: 'in_transit',
+        booking: activeReq
+      });
+
+      document.getElementById('driverOtpBox').classList.add('hidden');
+      document.getElementById('btnCompleteTrip').classList.remove('hidden');
+      document.getElementById('btnCancelEnRoute').classList.remove('hidden');
+      document.getElementById('liveProgressWrap').classList.remove('hidden');
+
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> OTP Verified — Live Journey Active';
+
+      const records = getRecords();
+      const newId = Date.now();
+      activeBookingId = newId;
+
+      records.push({
+        id: newId,
+        timestamp: new Date().toLocaleString(),
+        bookedBy: activeReq.bookedBy,
+        contactNumber: activeReq.contactNumber,
+        route: activeReq.route,
+        fare: activeReq.fare,
+        paymentMethod: activeReq.paymentMethod,
+        status: 'In Transit (WhatsApp OTP Verified)'
+      });
+      saveRecords(records);
+      renderRecords();
+
+      if (liveCarMarker) map.removeLayer(liveCarMarker);
+      const startPoint = routeCoordinates.length > 0 ? routeCoordinates[0] : [fromMarker.getLatLng().lat, fromMarker.getLatLng().lng];
+      liveCarMarker = L.marker(startPoint, { icon: carIcon }).addTo(map)
+        .bindPopup(`<b>D'Cruz Alto K10</b><br>Passenger: ${escapeHtml(activeReq.bookedBy)}<br>OTP Verified`).openPopup();
+
+      if (navigator.geolocation) {
+        gpsWatchId = navigator.geolocation.watchPosition((pos) => {
+          const livePos = [pos.coords.latitude, pos.coords.longitude];
+          liveCarMarker.setLatLng(livePos);
+          map.panTo(livePos);
+        }, () => {}, { enableHighAccuracy: true });
+      }
+
+      let step = 0;
+      const totalSteps = routeCoordinates.length;
+      liveSimulationTimer = setInterval(() => {
+        if (step >= totalSteps) {
+          completeLiveJourney();
+          return;
+        }
+        const coord = routeCoordinates[step];
+        liveCarMarker.setLatLng(coord);
+        map.panTo(coord, { animate: true });
+        const pct = Math.min(100, Math.round(((step + 1) / totalSteps) * 100));
+        document.getElementById('liveProgressBar').style.width = `${pct}%`;
+        document.getElementById('liveProgressPct').textContent = `${pct}% Completed`;
+        step++;
+      }, 700);
+
+      showToast(`WhatsApp OTP verified! Journey started for ${activeReq.bookedBy}.`, 'success');
+    }
+
+    function stopTimersAndResetDriverControls() {
+      if (liveSimulationTimer) clearInterval(liveSimulationTimer);
+      if (gpsWatchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+      }
+      isJourneyStarted = false;
+      document.getElementById('btnCompleteTrip').classList.add('hidden');
+      document.getElementById('btnCancelEnRoute').classList.add('hidden');
+      document.getElementById('driverOtpBox').classList.remove('hidden');
+      document.getElementById('driverEnteredOtp').value = '';
+    }
+
+    async function cancelBeforeStart() {
+      if (isJourneyStarted) {
+        showToast('Journey has already started. Contact driver directly.', 'warning');
+        return;
+      }
+      const confirmed = await showConfirmDialog(
+        'Cancel Booking Request',
+        'Are you sure you want to cancel your pending booking request?'
+      );
+      if (!confirmed) return;
+
+      const state = loadAppState();
+      const b = state.booking || currentBookingData;
+      if (b) {
+        const records = getRecords();
+        records.push({
+          id: Date.now(),
+          timestamp: new Date().toLocaleString(),
+          bookedBy: b.bookedBy,
+          contactNumber: b.contactNumber,
+          route: b.route,
+          fare: `₹0 (Est. ${b.fare})`,
+          paymentMethod: b.paymentMethod,
+          status: 'Cancelled by Passenger (Before Start)'
+        });
+        saveRecords(records);
+        renderRecords();
+      }
+
+      generatedOtpCode = null;
+      currentBookingData = null;
+      document.getElementById('passengerOtpDisplayBox').classList.add('hidden');
+
+      saveAppState({
+        locked: false,
+        manualLock: state.manualLock,
+        status: 'available',
+        booking: null
+      });
+
+      showToast('Booking request cancelled.', 'info');
+    }
+
+    async function cancelEnRoute() {
+      if (!isJourneyStarted) return;
+      const state = loadAppState();
+      const activeReq = state.booking || currentBookingData;
+      const fareText = activeReq ? activeReq.fare : `₹${getCurrentFareDetails().totalFare}`;
+      const payMethod = activeReq ? activeReq.paymentMethod : document.getElementById('paymentMethod').value;
+
+      const confirmed = await showConfirmDialog(
+        'Cancel En-Route (Full Fare Applies)',
+        `Journey is already in progress. Cancelling mid-trip records FULL FARE (${fareText}) via ${payMethod} and unlocks the car. Proceed?`
+      );
+      if (!confirmed) return;
+
+      stopTimersAndResetDriverControls();
+
+      if (activeBookingId) {
+        const records = getRecords();
+        const rec = records.find(r => r.id === activeBookingId);
+        if (rec) {
+          rec.fare = fareText;
+          rec.paymentMethod = payMethod;
+          rec.status = `Cancelled On Route — Full Fare ${fareText} Charged`;
+          saveRecords(records);
+          renderRecords();
+        }
+        activeBookingId = null;
+      }
+
+      generatedOtpCode = null;
+      currentBookingData = null;
+      document.getElementById('passengerOtpDisplayBox').classList.add('hidden');
+
+      saveAppState({
+        locked: false,
+        manualLock: state.manualLock,
+        status: 'available',
+        booking: null
+      });
+
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-rose-500"></span> Cancelled On Route — Fleet Unlocked';
+      showToast(`Trip cancelled on route. Full fare (${fareText}) logged & fleet unlocked.`, 'warning');
+    }
+
+    function completeLiveJourney() {
+      stopTimersAndResetDriverControls();
+      const state = loadAppState();
+      const activeReq = state.booking || currentBookingData;
+      const fareText = activeReq ? activeReq.fare : `₹${getCurrentFareDetails().totalFare}`;
+      const payMethod = activeReq ? activeReq.paymentMethod : document.getElementById('paymentMethod').value;
+
+      document.getElementById('tripStatusBadge').innerHTML =
+        '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Destination Reached — Fleet Available';
+      document.getElementById('liveProgressBar').style.width = '100%';
+      document.getElementById('liveProgressPct').textContent = '100% Arrived at Destination';
+
+      if (activeBookingId) {
+        const records = getRecords();
+        const rec = records.find(r => r.id === activeBookingId);
+        if (rec) {
+          rec.paymentMethod = payMethod;
+          rec.status = `Completed (Paid via ${payMethod})`;
+          saveRecords(records);
+          renderRecords();
+        }
+        activeBookingId = null;
+      }
+
+      generatedOtpCode = null;
+      currentBookingData = null;
+      document.getElementById('passengerOtpDisplayBox').classList.add('hidden');
+
+      saveAppState({
+        locked: false,
+        manualLock: state.manualLock,
+        status: 'available',
+        booking: null
+      });
+
+      showToast(`Journey completed! ${fareText} (${payMethod}) saved to ledger and bookings unlocked.`, 'success');
+    }
+
+    // --- 5. RECORD STORAGE & ONEDRIVE EXCEL / MS ACCESS EXPORT ---
+    function getRecords() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveRecords(records) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    }
+
+    function renderRecords() {
+      const records = getRecords();
+      const tbody = document.getElementById('recordsTableBody');
+      if (records.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-xs text-slate-500">No bookings or cancellations recorded yet.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = records.map((r, idx) => {
+        const isCancelledOrRejected = r.status.toLowerCase().includes('cancelled') || r.status.toLowerCase().includes('rejected');
+        const badgeClass = isCancelledOrRejected
+          ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
+          : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800';
+        return `
+          <tr class="hover:bg-slate-900/50">
+            <td class="py-2.5 px-3 font-semibold text-slate-500">${idx + 1}</td>
+            <td class="py-2.5 px-3 text-xs text-slate-400 whitespace-nowrap">${escapeHtml(r.timestamp)}</td>
+            <td class="py-2.5 px-3 font-bold text-white">${escapeHtml(r.bookedBy)}</td>
+            <td class="py-2.5 px-3 font-mono text-slate-300">${escapeHtml(r.contactNumber)}</td>
+            <td class="py-2.5 px-3 text-xs font-medium text-slate-300">${escapeHtml(r.route)}</td>
+            <td class="py-2.5 px-3 font-bold text-amber-400">${escapeHtml(r.fare)}</td>
+            <td class="py-2.5 px-3 text-xs font-semibold text-slate-300">${escapeHtml(r.paymentMethod)}</td>
+            <td class="py-2.5 px-3">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${badgeClass}">
+                ${escapeHtml(r.status)}
+              </span>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function saveToOneDriveExcel() {
+      const records = getRecords();
+      if (records.length === 0) {
+        showToast('No records available to export yet.', 'warning');
+        return;
+      }
+      const rows = records.map(r => ({
+        'Date & Time': r.timestamp,
+        'Booked By': r.bookedBy,
+        'Contact Number': r.contactNumber,
+        'Journey Route': r.route,
+        'Fare': r.fare,
+        'Payment Method': r.paymentMethod,
+        'Status / Cancellation Note': r.status,
+        'OneDrive Account': 'dibyendu_deb@outlook.com'
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      worksheet['!cols'] = [
+        { wch: 22 }, { wch: 22 }, { wch: 16 }, { wch: 42 },
+        { wch: 14 }, { wch: 24 }, { wch: 36 }, { wch: 26 }
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'DCruz_Journeys');
+      XLSX.writeFile(workbook, 'DCruz_OneDrive_dibyendu_deb.xlsx');
+      showToast('Excel ledger (.xlsx) downloaded for OneDrive sync.', 'success');
+    }
+
+    function exportToAccessCSV() {
+      const records = getRecords();
+      if (records.length === 0) {
+        showToast('No records available to export yet.', 'warning');
+        return;
+      }
+      const header = ['Date_Time,Booked_By,Contact_Number,Journey_Route,Fare,Payment_Method,Status_Notes,OneDrive_Account'];
+      const lines = records.map(r =>
+        [
+          r.timestamp, r.bookedBy, r.contactNumber, r.route,
+          r.fare, r.paymentMethod, r.status, 'dibyendu_deb@outlook.com'
+        ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')
+      );
+      const blob = new Blob([header.concat(lines).join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'DCruz_Access_OneDrive_dibyendu_deb.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('MS Access CSV ledger downloaded.', 'success');
+    }
+
+    async function clearRecords() {
+      const confirmed = await showConfirmDialog(
+        'Clear Ledger Records',
+        'Clear local browser ledger list? Ensure you have saved the Excel or CSV file to OneDrive first.'
+      );
+      if (confirmed) {
+        localStorage.removeItem(STORAGE_KEY);
+        activeBookingId = null;
+        renderRecords();
+        showToast('Local ledger records cleared.', 'info');
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    // Listen for cross-tab storage updates so lockout updates live
+    window.addEventListener('storage', (e) => {
+      if (e.key === STATE_KEY) applyAppStateToUI();
+      if (e.key === STORAGE_KEY) renderRecords();
+    });
+
+    // Boot Application
+    window.addEventListener('load', () => {
+      setTimeout(() => map.invalidateSize(), 200);
+      recalculateFare();
+    });
+    updateRoute();
+    recalculateFare();
+    renderRecords();
+    applyAppStateToUI();
+    checkIncomingUrlPayload();
+  </script>
+</body>
+</html>
