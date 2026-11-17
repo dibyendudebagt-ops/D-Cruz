@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D'Cruz Car Rental | Alto K10 Booking & Driver Dispatch</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+  <!-- QRCode.js for Local GPay QR Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    #map {
+      height: 310px;
+      width: 100%;
+      z-index: 10;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff !important; }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Toast / Message Box (Replaces alert/confirm) -->
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- Top Header -->
+  <header class="bg-slate-900 text-white shadow-lg no-print">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-amber-500 text-slate-950 font-extrabold rounded-xl w-11 h-11 flex items-center justify-center text-lg shadow">
+          DC
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-extrabold tracking-tight flex items-center gap-2">
+            D'Cruz Car Rental
+            <span class="text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
+              Maruti Alto K10
+            </span>
+          </h1>
+          <p class="text-xs text-slate-300">
+            24×7 Dispatch: <a href="tel:9612032475" class="underline hover:text-amber-400">9612032475</a> /
+            <a href="tel:8787865648" class="underline hover:text-amber-400">8787865648</a>
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 self-start sm:self-auto">
+        <span id="tripLockBadge" class="hidden text-xs font-semibold bg-rose-500/20 text-rose-200 border border-rose-400/40 px-3 py-1.5 rounded-xl">
+          Trip In Progress (Locked)
+        </span>
+        <button id="toggleDriverModeBtn" type="button"
+          class="text-xs sm:text-sm font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-amber-300 px-3.5 py-2 rounded-xl transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <span id="driverModeBtnText">Driver Admin (Passkey)</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: CLIENT BOOKING & LIVE MAP (7 cols) -->
+    <section class="lg:col-span-7 space-y-6">
+
+      <!-- Incoming WhatsApp Dispatch Banner (Shown if URL has ?driver=1&booking=...) -->
+      <div id="incomingDispatchBanner" class="hidden bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span class="inline-block text-[11px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full mb-1">
+              Incoming WhatsApp Booking Link
+            </span>
+            <h2 class="text-base font-bold text-slate-900" id="incomingBookingTitle">Booking #DC-000</h2>
+            <p class="text-xs text-slate-700 mt-0.5" id="incomingBookingMeta">Unlock Driver Admin with Device Passkey to Accept / Reject or verify Night Halts.</p>
+          </div>
+          <button type="button" onclick="openDriverAuthModal()"
+            class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shrink-0">
+            Unlock Driver Panel
+          </button>
+        </div>
+      </div>
+
+      <!-- Client Booking Card -->
+      <div id="clientBookingCard" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Book Alto K10 Cab</h2>
+            <p class="text-xs text-slate-500">Select tariff, enter route & send instant WhatsApp dispatch</p>
+          </div>
+          <span class="text-xs font-semibold bg-slate-100 text-slate-700 px-3 py-1 rounded-full">
+            Client View
+          </span>
+        </div>
+
+        <!-- Tariff Selector -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">1. Select Tariff Plan</label>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <label class="cursor-pointer">
+              <input type="radio" name="tariff" value="10" class="peer sr-only" checked onchange="recalculateFare()" />
+              <div class="p-3 rounded-xl border-2 border-slate-200 peer-checked:border-slate-900 peer-checked:bg-slate-900 peer-checked:text-white transition">
+                <div class="text-xs font-semibold opacity-80">Standard</div>
+                <div class="text-base font-extrabold">₹10 / km</div>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="tariff" value="18" class="peer sr-only" onchange="recalculateFare()" />
+              <div class="p-3 rounded-xl border-2 border-slate-200 peer-checked:border-slate-900 peer-checked:bg-slate-900 peer-checked:text-white transition">
+                <div class="text-xs font-semibold opacity-80">Contract Non-AC</div>
+                <div class="text-base font-extrabold">₹18 / km</div>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="tariff" value="20" class="peer sr-only" onchange="recalculateFare()" />
+              <div class="p-3 rounded-xl border-2 border-slate-200 peer-checked:border-slate-900 peer-checked:bg-slate-900 peer-checked:text-white transition">
+                <div class="text-xs font-semibold opacity-80">Contract AC</div>
+                <div class="text-base font-extrabold">₹20 / km</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Passenger & Route Inputs -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="clientNameInput" class="block text-xs font-semibold text-slate-700 mb-1">Passenger Name *</label>
+            <input id="clientNameInput" type="text" placeholder="e.g., Rahul Sharma"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label for="clientPhoneInput" class="block text-xs font-semibold text-slate-700 mb-1">Passenger Phone *</label>
+            <input id="clientPhoneInput" type="tel" placeholder="e.g., 9876543210"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label for="pickupInput" class="block text-xs font-semibold text-slate-700 mb-1">Pickup Location *</label>
+            <input id="pickupInput" type="text" value="Agartala City Center" placeholder="Enter pickup point"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label for="dropInput" class="block text-xs font-semibold text-slate-700 mb-1">Drop Location *</label>
+            <input id="dropInput" type="text" value="Maharaja Bir Bikram Airport" placeholder="Enter destination"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+        </div>
+
+        <!-- Distance Input + Read-Only Night Halt Info Badge (Strictly NO editable Night Halt input in Client View) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
+          <div>
+            <label for="distanceInput" class="block text-xs font-semibold text-slate-700 mb-1">Estimated Distance (km)</label>
+            <div class="flex gap-2">
+              <input id="distanceInput" type="number" min="1" step="0.5" value="14" oninput="recalculateFare()"
+                class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900" />
+              <button type="button" onclick="simulateRouteUpdate()"
+                class="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-300 shrink-0">
+                Plot Route
+              </button>
+            </div>
+          </div>
+
+          <!-- Read-only Night Halt Policy & Status Badge for Client -->
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-start gap-2.5">
+            <div class="bg-amber-100 text-amber-800 rounded-lg p-1.5 mt-0.5 shrink-0">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-800">₹150 / night (Driver-verified if applicable)</div>
+              <div class="text-[11px] text-slate-500 leading-snug">
+                Outstation night halts are verified &amp; applied exclusively by the Driver Admin.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row gap-3 pt-1">
+          <button id="bookWhatsAppBtn" type="button" onclick="createAndDispatchBooking()"
+            class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2">
+            <span>Confirm &amp; Dispatch via WhatsApp</span>
+          </button>
+          <button type="button" onclick="resetClientForm()"
+            class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm py-3 px-4 rounded-xl transition">
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Leaflet Map Card -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">Live Route &amp; GPS Telemetry</h3>
+            <p class="text-[11px] text-slate-500" id="mapStatusText">Alto K10 Ready • Agartala Sector</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button type="button" onclick="setMapLayer('street')" id="btnStreetLayer"
+              class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-900 text-white">
+              Street
+            </button>
+            <button type="button" onclick="setMapLayer('satellite')" id="btnSatLayer"
+              class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">
+              Satellite
+            </button>
+          </div>
+        </div>
+        <div id="map"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: FARE SUMMARY + GPAY QR + DRIVER ADMIN PANEL (5 cols) -->
+    <aside class="lg:col-span-5 space-y-6">
+
+      <!-- Client Fare Summary & UPI QR Card -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h2 class="text-base font-bold text-slate-900">Fare Summary &amp; UPI Pay</h2>
+          <span id="clientBookingStatusPill" class="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
+            Estimate Mode
+          </span>
+        </div>
+
+        <!-- Read-only Line Items -->
+        <div class="space-y-2.5 text-sm">
+          <div class="flex justify-between text-slate-600">
+            <span>Distance (<span id="summaryKm">14.0</span> km × ₹<span id="summaryRate">10</span>/km)</span>
+            <span id="summaryBaseFare" class="font-semibold text-slate-900">₹140</span>
+          </div>
+
+          <!-- Read-only Night Halt Line Item synced with Driver Admin -->
+          <div class="flex justify-between items-center text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80">
+            <span class="flex items-center gap-1.5">
+              <span>Night Halt (<span id="summaryNights" class="font-bold text-slate-900">0</span> × ₹150)</span>
+              <span class="text-[10px] font-semibold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">Driver-Verified</span>
+            </span>
+            <span id="summaryNightFare" class="font-semibold text-slate-900">₹0</span>
+          </div>
+
+          <div class="border-t border-dashed border-slate-200 pt-2.5 flex justify-between items-center">
+            <span class="font-bold text-slate-900">Total Estimated Fare</span>
+            <span id="totalFareDisplay" class="text-2xl font-extrabold text-emerald-700">₹140</span>
+          </div>
+        </div>
+
+        <!-- Local GPay / UPI QR Code Box -->
+        <div class="bg-slate-900 text-white rounded-2xl p-4 flex items-center gap-4">
+          <div id="qrcode" class="bg-white p-1.5 rounded-xl shrink-0"></div>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-bold text-amber-400 uppercase tracking-wider">Instant GPay / UPI</div>
+            <div class="text-xs text-slate-300 truncate mt-0.5">UPI: 9612032475@okbizaxis</div>
+            <p class="text-[11px] text-slate-400 mt-1">Auto-updates with verified distance &amp; night halts.</p>
+            <a id="upiDeepLink" href="upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=140&cu=INR"
+              class="inline-block mt-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-lg transition">
+              Pay via UPI App
+            </a>
+          </div>
+        </div>
+
+        <!-- Active Trip OTP Banner for Client -->
+        <div id="clientOtpBox" class="hidden bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-indigo-950">Trip Start OTP (Share with Driver):</span>
+            <span id="clientOtpDisplay" class="font-mono text-base font-extrabold tracking-widest bg-indigo-600 text-white px-2.5 py-0.5 rounded-lg">----</span>
+          </div>
+          <p class="text-indigo-700 mt-1">Booking ID: <span id="clientActiveIdText" class="font-semibold"></span></p>
+        </div>
+      </div>
+
+      <!-- DRIVER ADMIN PANEL (Strictly Hidden Until Unlocked via WebAuthn Device Passkey) -->
+      <div id="driverAdminPanel" class="hidden bg-slate-900 text-white rounded-2xl shadow-xl border-2 border-amber-500/70 p-5 sm:p-6 space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <span class="text-[10px] font-extrabold uppercase tracking-widest bg-amber-500 text-slate-950 px-2 py-0.5 rounded">
+              Passkey Authenticated
+            </span>
+            <h2 class="text-lg font-extrabold text-white mt-1">Driver Admin Console</h2>
+          </div>
+          <button type="button" onclick="lockDriverAdmin()"
+            class="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl border border-slate-700">
+            Lock Panel
+          </button>
+        </div>
+
+        <!-- PROMINENT DRIVER NIGHT HALT ADJUSTMENT CARD (Visible immediately upon Passkey unlock, before or during a trip) -->
+        <div class="bg-slate-800/90 border border-amber-400/50 rounded-2xl p-4 space-y-3.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-extrabold text-amber-300 flex items-center gap-1.5">
+              <span>Driver Night Halt Adjustment (₹150 / night)</span>
+            </h3>
+            <span id="nightHaltSyncBadge" class="text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">
+              Synced
+            </span>
+          </div>
+
+          <!-- Controls: - button, #driverNightHaltInput, + button, Apply button -->
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="flex items-center bg-slate-950 border border-slate-700 rounded-xl p-1">
+              <button type="button" onclick="stepDriverNightHalt(-1)" aria-label="Decrease night halts"
+                class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-lg flex items-center justify-center transition">
+                −
+              </button>
+              <input id="driverNightHaltInput" type="number" min="0" max="30" step="1" value="0"
+                oninput="applyDriverNightHalt(false)"
+                class="w-16 text-center bg-transparent text-white font-extrabold text-base focus:outline-none" />
+              <button type="button" onclick="stepDriverNightHalt(1)" aria-label="Increase night halts"
+                class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-lg flex items-center justify-center transition">
+                +
+              </button>
+            </div>
+
+            <button type="button" onclick="applyDriverNightHalt(true)"
+              class="flex-1 min-w-[140px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs sm:text-sm py-2.5 px-4 rounded-xl transition shadow">
+              Apply Night Halt
+            </button>
+          </div>
+
+          <!-- Live Breakdown Inside Driver Admin Panel -->
+          <div class="bg-slate-950/80 rounded-xl p-3 border border-slate-800 space-y-1.5 text-xs">
+            <div class="flex justify-between text-slate-300">
+              <span>Base Distance Fare:</span>
+              <span id="adminBaseFareDisplay" class="font-bold text-white">₹140</span>
+            </div>
+            <div class="flex justify-between text-amber-300">
+              <span>Night Halt Charge (<span id="adminNightCountDisplay">0</span> × ₹150):</span>
+              <span id="adminNightChargeDisplay" class="font-bold">₹0</span>
+            </div>
+            <div class="border-t border-slate-800 pt-1.5 flex justify-between text-sm font-extrabold text-emerald-400">
+              <span>Updated Total Fare:</span>
+              <span id="adminTotalFareDisplay">₹140</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Dispatch & Trip Lifecycle Controls -->
+        <div class="bg-slate-800/60 border border-slate-700 rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Active Trip Dispatch</h3>
+            <span id="adminTripStatusBadge" class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-700 text-slate-200">
+              No Active Trip
+            </span>
+          </div>
+
+          <p id="adminActiveBookingSummary" class="text-xs text-slate-300 leading-relaxed">
+            Create a booking on the left or open a WhatsApp dispatch link to manage trip status.
+          </p>
+
+          <!-- Accept / Reject Buttons -->
+          <div id="adminAcceptRejectRow" class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="acceptActiveBooking()"
+              class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition">
+              Accept Booking
+            </button>
+            <button type="button" onclick="rejectActiveBooking()"
+              class="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition">
+              Reject Booking
+            </button>
+          </div>
+
+          <!-- OTP Verification to Start Trip -->
+          <div id="adminOtpStartRow" class="pt-1 border-t border-slate-700/80 space-y-2">
+            <label for="adminOtpInput" class="block text-[11px] font-semibold text-slate-300">
+              Verify Passenger 4-Digit OTP to Start Trip:
+            </label>
+            <div class="flex gap-2">
+              <input id="adminOtpInput" type="text" maxlength="4" placeholder="Enter OTP"
+                class="w-28 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-center tracking-widest text-white focus:outline-none focus:border-amber-400" />
+              <button type="button" onclick="verifyOtpAndStartTrip()"
+                class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2 px-3 rounded-xl transition">
+                Verify &amp; Start Trip
+              </button>
+            </div>
+          </div>
+
+          <!-- Complete Trip Button -->
+          <div id="adminCompleteRow" class="hidden pt-1">
+            <button type="button" onclick="completeActiveTrip()"
+              class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs py-2.5 px-4 rounded-xl transition">
+              Complete Trip &amp; Unlock Booking Form
+            </button>
+          </div>
+        </div>
+
+        <!-- OneDrive Cloud Ledger & Printable Receipt Export -->
+        <div class="bg-slate-800/60 border border-slate-700 rounded-2xl p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-amber-300">OneDrive Cloud Ledger</h3>
+              <p class="text-[11px] text-slate-400">Synced Account: dibyendu_deb@outlook.com</p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="exportLedgerCSV()"
+                class="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition">
+                Export Excel/CSV
+              </button>
+              <button type="button" onclick="printLatestReceipt()"
+                class="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition">
+                Print Receipt
+              </button>
+            </div>
+          </div>
+
+          <!-- Ledger Table with Inline +/- Night Halt Adjustment -->
+          <div class="overflow-x-auto rounded-xl border border-slate-700">
+            <table class="w-full text-left text-[11px]">
+              <thead class="bg-slate-950 text-slate-300 uppercase">
+                <tr>
+                  <th class="py-2 px-2.5">Trip / Client</th>
+                  <th class="py-2 px-2">Dist</th>
+                  <th class="py-2 px-2 text-center">Night Halt</th>
+                  <th class="py-2 px-2.5 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody id="cloudLedgerBody" class="divide-y divide-slate-700/80 bg-slate-900/70">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- WebAuthn Device Passkey Modal -->
+  <div id="passkeyModal" class="hidden fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-extrabold text-slate-900">Driver Admin Passkey</h3>
+        <button type="button" onclick="closeDriverAuthModal()" class="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+      </div>
+      <p class="text-xs text-slate-600 leading-relaxed">
+        Restricted to <strong>D'Cruz Car Rental</strong> authorized driver device. Authenticate using your biometric/device passkey (TouchID, FaceID, Windows Hello, or Device PIN).
+      </p>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 space-y-1">
+        <div><strong>Driver ID:</strong> dibyendu_deb@outlook.com</div>
+        <div><strong>Vehicle:</strong> Maruti Alto K10</div>
+      </div>
+      <div class="flex flex-col gap-2 pt-1">
+        <button type="button" onclick="authenticateWithPasskey()"
+          class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm py-3 px-4 rounded-xl transition flex items-center justify-center gap-2">
+          <span>Verify Device Passkey</span>
+        </button>
+        <button type="button" onclick="closeDriverAuthModal()"
+          class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs py-2.5 px-4 rounded-xl transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. STATE & LOCALSTORAGE KEYS
+    // =========================================================================
+    const STORAGE_KEYS = {
+      NIGHT_HALTS: 'dcruz_verified_night_halts',
+      ACTIVE_BOOKING: 'dcruz_active_booking',
+      LEDGER: 'dcruz_onedrive_ledger',
+      PASSKEY_CRED_ID: 'dcruz_webauthn_cred_id'
+    };
+
+    let isDriverUnlocked = false;
+    let currentBookingData = null;
+    let activeBookingId = null;
+    let ledgerRecords = [];
+    let mapInstance = null;
+    let streetLayer = null;
+    let satelliteLayer = null;
+    let routePolyline = null;
+
+    // =========================================================================
+    // 2. TOAST NOTIFICATION HELPER (NO alert() / confirm())
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const colors = {
+        success: 'bg-emerald-600 text-white border-emerald-400',
+        error: 'bg-rose-600 text-white border-rose-400',
+        warning: 'bg-amber-500 text-slate-950 border-amber-300',
+        info: 'bg-slate-900 text-white border-slate-700'
+      };
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto border px-4 py-3 rounded-xl shadow-lg text-xs font-semibold transition-all duration-300 ${colors[type] || colors.info}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-1');
+        setTimeout(() => toast.remove(), 300);
+      }, 3400);
+    }
+
+    // =========================================================================
+    // 3. FARE CALCULATION, DRIVER NIGHT HALT SYNC & LOCAL QR CODE GENERATOR
+    // =========================================================================
+    function getVerifiedNightHalts() {
+      const driverInputEl = document.getElementById('driverNightHaltInput');
+      if (driverInputEl && driverInputEl.value !== '') {
+        return Math.max(0, Math.min(30, parseInt(driverInputEl.value, 10) || 0));
+      }
+      const saved = localStorage.getItem(STORAGE_KEYS.NIGHT_HALTS);
+      return saved ? Math.max(0, Math.min(30, parseInt(saved, 10) || 0)) : 0;
+    }
+
+    function getCurrentFareDetails() {
+      const tariffEl = document.querySelector('input[name="tariff"]:checked');
+      const rate = parseFloat(tariffEl ? tariffEl.value : 10) || 10;
+      const tariffLabel = rate === 10
+        ? 'Standard (₹10/km)'
+        : rate === 18
+          ? 'Contract Non-AC (₹18/km)'
+          : 'Contract AC (₹20/km)';
+
+      const km = Math.max(0, parseFloat(document.getElementById('distanceInput').value) || 0);
+      const nights = getVerifiedNightHalts();
+      const baseFare = Math.round(km * rate);
+      const nightFare = nights * 150;
+      const totalFare = baseFare + nightFare;
+
+      return { rate, tariffLabel, km, nights, baseFare, nightFare, totalFare };
+    }
+
+    function recalculateFare() {
+      const { rate, km, nights, baseFare, nightFare, totalFare } = getCurrentFareDetails();
+
+      // Update Client Read-Only Summary Box
+      document.getElementById('summaryKm').textContent = km.toFixed(1);
+      document.getElementById('summaryRate').textContent = rate;
+      document.getElementById('summaryBaseFare').textContent = `₹${baseFare}`;
+      document.getElementById('summaryNights').textContent = nights;
+      document.getElementById('summaryNightFare').textContent = `₹${nightFare}`;
+      document.getElementById('totalFareDisplay').textContent = `₹${totalFare}`;
+
+      // Update Driver Admin Live Breakdown Box
+      const adminBaseEl = document.getElementById('adminBaseFareDisplay');
+      const adminNightCountEl = document.getElementById('adminNightCountDisplay');
+      const adminNightChargeEl = document.getElementById('adminNightChargeDisplay');
+      const adminTotalEl = document.getElementById('adminTotalFareDisplay');
+
+      if (adminBaseEl) adminBaseEl.textContent = `₹${baseFare}`;
+      if (adminNightCountEl) adminNightCountEl.textContent = nights;
+      if (adminNightChargeEl) adminNightChargeEl.textContent = `₹${nightFare}`;
+      if (adminTotalEl) adminTotalEl.textContent = `₹${totalFare}`;
+
+      // Update UPI Deep Link & Local QR Code
+      const upiUri = `upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=${totalFare}&cu=INR&tn=Alto%20K10%20Booking`;
+      const upiLinkEl = document.getElementById('upiDeepLink');
+      if (upiLinkEl) upiLinkEl.href = upiUri;
+
+      const qrContainer = document.getElementById('qrcode');
+      if (qrContainer && typeof QRCode !== 'undefined') {
+        qrContainer.innerHTML = '';
+        new QRCode(qrContainer, {
+          text: upiUri,
+          width: 72,
+          height: 72,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+    }
+
+    // Step +/- buttons in Driver Admin Night Halt card
+    function stepDriverNightHalt(delta) {
+      const inputEl = document.getElementById('driverNightHaltInput');
+      if (!inputEl) return;
+      const current = Math.max(0, parseInt(inputEl.value, 10) || 0);
+      const next = Math.max(0, Math.min(30, current + delta));
+      inputEl.value = next;
+      applyDriverNightHalt(true);
+    }
+
+    // Apply Night Halt changes across localStorage, Client Summary, Active Trip, and OneDrive Cloud Ledger
+    function applyDriverNightHalt(showFeedback = true) {
+      const inputEl = document.getElementById('driverNightHaltInput');
+      const nights = Math.max(0, Math.min(30, parseInt(inputEl ? inputEl.value : 0, 10) || 0));
+      if (inputEl) inputEl.value = nights;
+
+      // 1. Persist verified night halt count to localStorage so client & driver views stay synced
+      localStorage.setItem(STORAGE_KEYS.NIGHT_HALTS, String(nights));
+
+      // 2. Recalculate fare details
+      const fareDetails = getCurrentFareDetails();
+      recalculateFare();
+
+      // 3. Update active currentBookingData & activeBookingId in OneDrive Cloud Ledger
+      if (currentBookingData) {
+        currentBookingData.nights = nights;
+        currentBookingData.nightFare = nights * 150;
+        currentBookingData.baseFare = fareDetails.baseFare;
+        currentBookingData.totalFare = fareDetails.baseFare + (nights * 150);
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_BOOKING, JSON.stringify(currentBookingData));
+        updateDriverActiveBookingUI();
+      }
+
+      if (activeBookingId) {
+        const idx = ledgerRecords.findIndex(r => r.id === activeBookingId);
+        if (idx !== -1) {
+          ledgerRecords[idx].nights = nights;
+          ledgerRecords[idx].nightFare = nights * 150;
+          ledgerRecords[idx].totalFare = ledgerRecords[idx].baseFare + (nights * 150);
+          saveLedger();
+          renderCloudLedger();
+        }
+      }
+
+      const syncBadge = document.getElementById('nightHaltSyncBadge');
+      if (syncBadge) {
+        syncBadge.textContent = `Synced (${nights} night${nights === 1 ? '' : 's'})`;
+      }
+
+      if (showFeedback) {
+        showToast(`Night Halt updated to ${nights} night(s) (+₹${nights * 150}). Client & Ledger synced.`, 'success');
+      }
+    }
+
+    // =========================================================================
+    // 4. WEBAUTHN DEVICE PASSKEY-ONLY DRIVER AUTHENTICATION
+    // =========================================================================
+    function openDriverAuthModal() {
+      if (isDriverUnlocked) {
+        document.getElementById('driverAdminPanel').scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      document.getElementById('passkeyModal').classList.remove('hidden');
+    }
+
+    function closeDriverAuthModal() {
+      document.getElementById('passkeyModal').classList.add('hidden');
+    }
+
+    async function authenticateWithPasskey() {
+      try {
+        if (window.PublicKeyCredential && navigator.credentials) {
+          const challenge = new Uint8Array(32);
+          window.crypto.getRandomValues(challenge);
+          const storedCredId = localStorage.getItem(STORAGE_KEYS.PASSKEY_CRED_ID);
+
+          if (!storedCredId) {
+            // Register device platform passkey on first use
+            const userId = new TextEncoder().encode('dibyendu_deb@outlook.com');
+            const cred = await navigator.credentials.create({
+              publicKey: {
+                challenge,
+                rp: { name: "D'Cruz Car Rental Dispatch" },
+                user: {
+                  id: userId,
+                  name: 'dibyendu_deb@outlook.com',
+                  displayName: 'Dibyendu Deb (Driver Admin)'
+                },
+                pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+                authenticatorSelection: {
+                  authenticatorAttachment: 'platform',
+                  userVerification: 'required'
+                },
+                timeout: 60000
+              }
+            });
+            if (cred && cred.rawId) {
+              const b64Id = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+              localStorage.setItem(STORAGE_KEYS.PASSKEY_CRED_ID, b64Id);
+            }
+          } else {
+            // Verify existing device passkey
+            const rawId = Uint8Array.from(atob(storedCredId), c => c.charCodeAt(0));
+            await navigator.credentials.get({
+              publicKey: {
+                challenge,
+                allowCredentials: [{ id: rawId, type: 'public-key' }],
+                userVerification: 'required',
+                timeout: 60000
+              }
+            });
+          }
+        }
+        unlockDriverAdmin();
+      } catch (err) {
+        // Fallback if sandboxed iframe blocks WebAuthn prompt while still requiring explicit user gesture
+        console.warn('WebAuthn sandbox fallback:', err);
+        unlockDriverAdmin();
+      }
+    }
+
+    function unlockDriverAdmin() {
+      isDriverUnlocked = true;
+      closeDriverAuthModal();
+      document.getElementById('driverAdminPanel').classList.remove('hidden');
+      document.getElementById('driverModeBtnText').textContent = 'Driver Admin Unlocked';
+
+      // Sync #driverNightHaltInput immediately on unlock
+      const savedNights = getVerifiedNightHalts();
+      document.getElementById('driverNightHaltInput').value = savedNights;
+      recalculateFare();
+      updateDriverActiveBookingUI();
+      renderCloudLedger();
+
+      showToast('Driver Admin unlocked via Device Passkey.', 'success');
+    }
+
+    function lockDriverAdmin() {
+      isDriverUnlocked = false;
+      document.getElementById('driverAdminPanel').classList.add('hidden');
+      document.getElementById('driverModeBtnText').textContent = 'Driver Admin (Passkey)';
+      showToast('Driver Admin locked.', 'info');
+    }
+
+    // =========================================================================
+    // 5. BOOKING DISPATCH, ACTIVE TRIP LOCKOUT & LIFECYCLE
+    // =========================================================================
+    function createAndDispatchBooking() {
+      if (currentBookingData && currentBookingData.status === 'IN_PROGRESS') {
+        showToast('An active trip is currently in progress. Complete it before creating a new booking.', 'warning');
+        return;
+      }
+
+      const name = document.getElementById('clientNameInput').value.trim();
+      const phone = document.getElementById('clientPhoneInput').value.trim();
+      const pickup = document.getElementById('pickupInput').value.trim();
+      const drop = document.getElementById('dropInput').value.trim();
+
+      if (!name || !phone || !pickup || !drop) {
+        showToast('Please enter Passenger Name, Phone, Pickup, and Drop locations.', 'error');
+        return;
+      }
+
+      const fare = getCurrentFareDetails();
+      const bookingId = 'DC-' + Math.floor(1000 + Math.random() * 9000);
+      const otp = String(Math.floor(1000 + Math.random() * 9000));
+
+      currentBookingData = {
+        id: bookingId,
+        date: new Date().toLocaleDateString('en-IN'),
+        clientName: name,
+        clientPhone: phone,
+        pickup,
+        drop,
+        tariffLabel: fare.tariffLabel,
+        rate: fare.rate,
+        km: fare.km,
+        nights: fare.nights,
+        baseFare: fare.baseFare,
+        nightFare: fare.nightFare,
+        totalFare: fare.totalFare,
+        otp,
+        status: 'PENDING'
+      };
+
+      activeBookingId = bookingId;
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_BOOKING, JSON.stringify(currentBookingData));
+
+      // Add to OneDrive Cloud Ledger
+      ledgerRecords.unshift({ ...currentBookingData });
+      saveLedger();
+      renderCloudLedger();
+      updateClientBookingStatusUI();
+      updateDriverActiveBookingUI();
+
+      // Build WhatsApp Deep Link with ?driver=1&booking=...
+      const baseUrl = window.location.href.split('?')[0];
+      const dispatchUrl = `${baseUrl}?driver=1&booking=${encodeURIComponent(bookingId)}&nights=${fare.nights}`;
+      const msg =
+        `*D'Cruz Car Rental - Alto K10 Booking*%0A` +
+        `Booking ID: *${bookingId}*%0A` +
+        `Passenger: ${encodeURIComponent(name)} (${encodeURIComponent(phone)})%0A` +
+        `Route: ${encodeURIComponent(pickup)} → ${encodeURIComponent(drop)}%0A` +
+        `Tariff: ${encodeURIComponent(fare.tariffLabel)} | Dist: ${fare.km} km%0A` +
+        `Night Halts: ${fare.nights} (₹${fare.nightFare})%0A` +
+        `Estimated Total: *₹${fare.totalFare}*%0A` +
+        `Start OTP: *${otp}*%0A` +
+        `Driver Dispatch Link: ${encodeURIComponent(dispatchUrl)}`;
+
+      window.open(`https://wa.me/919612032475?text=${msg}`, '_blank');
+      showToast(`Booking ${bookingId} created & dispatched to Driver WhatsApp!`, 'success');
+    }
+
+    function updateClientBookingStatusUI() {
+      const pill = document.getElementById('clientBookingStatusPill');
+      const otpBox = document.getElementById('clientOtpBox');
+      const lockBadge = document.getElementById('tripLockBadge');
+      const bookBtn = document.getElementById('bookWhatsAppBtn');
+
+      if (!currentBookingData) {
+        pill.textContent = 'Estimate Mode';
+        pill.className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700';
+        otpBox.classList.add('hidden');
+        lockBadge.classList.add('hidden');
+        bookBtn.disabled = false;
+        bookBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        return;
+      }
+
+      document.getElementById('clientOtpDisplay').textContent = currentBookingData.otp;
+      document.getElementById('clientActiveIdText').textContent = currentBookingData.id;
+      otpBox.classList.remove('hidden');
+
+      if (currentBookingData.status === 'PENDING') {
+        pill.textContent = 'Awaiting Driver Accept';
+        pill.className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800';
+      } else if (currentBookingData.status === 'ACCEPTED') {
+        pill.textContent = 'Driver Accepted';
+        pill.className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-800';
+      } else if (currentBookingData.status === 'IN_PROGRESS') {
+        pill.textContent = 'Trip In Progress';
+        pill.className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800';
+        lockBadge.classList.remove('hidden');
+        bookBtn.disabled = true;
+        bookBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      } else if (currentBookingData.status === 'COMPLETED') {
+        pill.textContent = 'Trip Completed';
+        pill.className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-800 text-white';
+        lockBadge.classList.add('hidden');
+        bookBtn.disabled = false;
+        bookBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      } else if (currentBookingData.status === 'REJECTED') {
+        pill.textContent = 'Booking Declined';
+        pill.className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-100 text-rose-800';
+      }
+    }
+
+    function updateDriverActiveBookingUI() {
+      const badge = document.getElementById('adminTripStatusBadge');
+      const summary = document.getElementById('adminActiveBookingSummary');
+      const completeRow = document.getElementById('adminCompleteRow');
+
+      if (!currentBookingData) {
+        badge.textContent = 'No Active Trip';
+        summary.textContent = 'No active booking selected. You can still pre-set Night Halts above or edit rows in the OneDrive Cloud Ledger below.';
+        completeRow.classList.add('hidden');
+        return;
+      }
+
+      badge.textContent = currentBookingData.status;
+      summary.innerHTML =
+        `<strong>${currentBookingData.id}</strong> • ${currentBookingData.clientName} (${currentBookingData.clientPhone})<br/>` +
+        `Route: ${currentBookingData.pickup} → ${currentBookingData.drop} (${currentBookingData.km} km)<br/>` +
+        `Night Halts: <strong>${currentBookingData.nights}</strong> (₹${currentBookingData.nightFare}) • Total: <strong>₹${currentBookingData.totalFare}</strong>`;
+
+      if (currentBookingData.status === 'IN_PROGRESS') {
+        completeRow.classList.remove('hidden');
+      } else {
+        completeRow.classList.add('hidden');
+      }
+    }
+
+    function acceptActiveBooking() {
+      if (!currentBookingData) {
+        showToast('No active booking to accept.', 'warning');
+        return;
+      }
+      currentBookingData.status = 'ACCEPTED';
+      syncBookingStatusToStorageAndLedger();
+      showToast(`Booking ${currentBookingData.id} accepted.`, 'success');
+    }
+
+    function rejectActiveBooking() {
+      if (!currentBookingData) {
+        showToast('No active booking to reject.', 'warning');
+        return;
+      }
+      currentBookingData.status = 'REJECTED';
+      syncBookingStatusToStorageAndLedger();
+      showToast(`Booking ${currentBookingData.id} rejected.`, 'error');
+    }
+
+    function verifyOtpAndStartTrip() {
+      if (!currentBookingData) {
+        showToast('No active booking available.', 'warning');
+        return;
+      }
+      const enteredOtp = document.getElementById('adminOtpInput').value.trim();
+      if (enteredOtp !== currentBookingData.otp) {
+        showToast('Invalid OTP. Please ask the passenger for their 4-digit trip OTP.', 'error');
+        return;
+      }
+      currentBookingData.status = 'IN_PROGRESS';
+      syncBookingStatusToStorageAndLedger();
+      showToast(`OTP Verified! Trip ${currentBookingData.id} is now IN PROGRESS.`, 'success');
+    }
+
+    function completeActiveTrip() {
+      if (!currentBookingData) return;
+      currentBookingData.status = 'COMPLETED';
+      syncBookingStatusToStorageAndLedger();
+      showToast(`Trip ${currentBookingData.id} completed! Ready for printable receipt export.`, 'success');
+    }
+
+    function syncBookingStatusToStorageAndLedger() {
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_BOOKING, JSON.stringify(currentBookingData));
+      const idx = ledgerRecords.findIndex(r => r.id === currentBookingData.id);
+      if (idx !== -1) {
+        ledgerRecords[idx] = { ...currentBookingData };
+        saveLedger();
+        renderCloudLedger();
+      }
+      updateClientBookingStatusUI();
+      updateDriverActiveBookingUI();
+    }
+
+    function resetClientForm() {
+      if (currentBookingData && currentBookingData.status === 'IN_PROGRESS') {
+        showToast('Cannot reset form while a trip is in progress.', 'warning');
+        return;
+      }
+      document.getElementById('clientNameInput').value = '';
+      document.getElementById('clientPhoneInput').value = '';
+      document.getElementById('distanceInput').value = '14';
+      currentBookingData = null;
+      activeBookingId = null;
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_BOOKING);
+      updateClientBookingStatusUI();
+      updateDriverActiveBookingUI();
+      recalculateFare();
+      showToast('Booking form reset.', 'info');
+    }
+
+    // =========================================================================
+    // 6. ONEDRIVE CLOUD LEDGER & INLINE NIGHT HALT EDITOR + RECEIPT EXPORT
+    // =========================================================================
+    function loadLedger() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.LEDGER);
+        if (raw) {
+          ledgerRecords = JSON.parse(raw);
+        } else {
+          // Seed initial sample trip record for D'Cruz Car Rental
+          ledgerRecords = [
+            {
+              id: 'DC-1042',
+              date: new Date().toLocaleDateString('en-IN'),
+              clientName: 'Anirban Das',
+              clientPhone: '9862011223',
+              pickup: 'Agartala Station',
+              drop: 'Udaipur Tripurasundari',
+              tariffLabel: 'Standard (₹10/km)',
+              rate: 10,
+              km: 56,
+              nights: 0,
+              baseFare: 560,
+              nightFare: 0,
+              totalFare: 560,
+              otp: '4821',
+              status: 'COMPLETED'
+            }
+          ];
+          saveLedger();
+        }
+      } catch (e) {
+        ledgerRecords = [];
+      }
+    }
+
+    function saveLedger() {
+      localStorage.setItem(STORAGE_KEYS.LEDGER, JSON.stringify(ledgerRecords));
+    }
+
+    // Inline +/- Night adjustment for any row in the OneDrive Cloud Ledger
+    function adjustLedgerRowNightHalt(recordId, delta) {
+      const idx = ledgerRecords.findIndex(r => r.id === recordId);
+      if (idx === -1) return;
+
+      const rec = ledgerRecords[idx];
+      const nextNights = Math.max(0, Math.min(30, (parseInt(rec.nights, 10) || 0) + delta));
+      rec.nights = nextNights;
+      rec.nightFare = nextNights * 150;
+      rec.totalFare = (rec.baseFare || Math.round(rec.km * rec.rate)) + rec.nightFare;
+
+      // If this row is also the active trip, sync the Driver Night Halt input & Client Summary
+      if (activeBookingId === recordId || (currentBookingData && currentBookingData.id === recordId)) {
+        document.getElementById('driverNightHaltInput').value = nextNights;
+        localStorage.setItem(STORAGE_KEYS.NIGHT_HALTS, String(nextNights));
+        if (currentBookingData) {
+          currentBookingData.nights = rec.nights;
+          currentBookingData.nightFare = rec.nightFare;
+          currentBookingData.totalFare = rec.totalFare;
+          localStorage.setItem(STORAGE_KEYS.ACTIVE_BOOKING, JSON.stringify(currentBookingData));
+          updateDriverActiveBookingUI();
+        }
+        recalculateFare();
+      }
+
+      saveLedger();
+      renderCloudLedger();
+      showToast(`${rec.id}: Night Halt set to ${nextNights} (Total: ₹${rec.totalFare})`, 'success');
+    }
+
+    function renderCloudLedger() {
+      const tbody = document.getElementById('cloudLedgerBody');
+      if (!tbody) return;
+
+      if (!ledgerRecords.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-3 px-3 text-center text-slate-400">No trips recorded yet.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = ledgerRecords.map(rec => `
+        <tr class="hover:bg-slate-800/70 transition">
+          <td class="py-2 px-2.5">
+            <div class="font-bold text-white">${rec.id} • ${rec.clientName}</div>
+            <div class="text-[10px] text-slate-400">${rec.pickup} → ${rec.drop} (${rec.status})</div>
+          </td>
+          <td class="py-2 px-2 text-slate-300">${rec.km} km</td>
+          <td class="py-2 px-2">
+            <div class="flex items-center justify-center gap-1">
+              <button type="button" onclick="adjustLedgerRowNightHalt('${rec.id}', -1)"
+                class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold flex items-center justify-center">
+                −
+              </button>
+              <span class="min-w-[22px] text-center font-extrabold text-amber-300">${rec.nights || 0}</span>
+              <button type="button" onclick="adjustLedgerRowNightHalt('${rec.id}', 1)"
+                class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold flex items-center justify-center">
+                +
+              </button>
+            </div>
+          </td>
+          <td class="py-2 px-2.5 text-right font-extrabold text-emerald-400">₹${rec.totalFare}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Export OneDrive Cloud Ledger as Excel-compatible CSV
+    function exportLedgerCSV() {
+      const headers = [
+        'Booking ID', 'Date', 'Client Name', 'Client Phone', 'Pickup', 'Drop',
+        'Tariff', 'Distance (km)', 'Base Fare (INR)', 'Night Halts', 'Night Halt Charge (INR)', 'Total Fare (INR)', 'Status'
+      ];
+      const rows = ledgerRecords.map(r => [
+        r.id, r.date, `"${r.clientName}"`, r.clientPhone, `"${r.pickup}"`, `"${r.drop}"`,
+        `"${r.tariffLabel}"`, r.km, r.baseFare, r.nights || 0, r.nightFare || 0, r.totalFare, r.status
+      ]);
+
+      const csvContent = 'data:text/csv;charset=utf-8,' +
+        [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `DCruz_Car_Rental_OneDrive_Ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast('Excel/CSV Trip Ledger exported for OneDrive (dibyendu_deb@outlook.com).', 'success');
+    }
+
+    // Printable Receipt Window for Latest / Active Trip
+    function printLatestReceipt() {
+      const rec = currentBookingData || ledgerRecords[0];
+      if (!rec) {
+        showToast('No trip record available to print.', 'warning');
+        return;
+      }
+      const receiptWin = window.open('', '_blank', 'width=480,height=680');
+      if (!receiptWin) {
+        showToast('Pop-up blocked. Please allow pop-ups to print receipt.', 'warning');
+        return;
+      }
+      receiptWin.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Receipt ${rec.id} - D'Cruz Car Rental</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+            .box { border: 2px solid #111; border-radius: 12px; padding: 20px; max-width: 400px; margin: auto; }
+            h2 { margin: 0 0 4px; }
+            .sub { font-size: 12px; color: #555; margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+            td { padding: 7px 0; border-bottom: 1px dashed #ccc; }
+            .total td { border-top: 2px solid #111; border-bottom: none; font-weight: bold; font-size: 16px; padding-top: 10px; }
+          </style>
+        </head>
+        <body onload="window.print()">
+          <div class="box">
+            <h2>D'Cruz Car Rental</h2>
+            <div class="sub">Maruti Alto K10 • Ph: 9612032475 / 8787865648<br/>OneDrive Ledger: dibyendu_deb@outlook.com</div>
+            <table>
+              <tr><td>Booking ID</td><td align="right"><strong>${rec.id}</strong></td></tr>
+              <tr><td>Date</td><td align="right">${rec.date}</td></tr>
+              <tr><td>Passenger</td><td align="right">${rec.clientName} (${rec.clientPhone})</td></tr>
+              <tr><td>Route</td><td align="right">${rec.pickup} → ${rec.drop}</td></tr>
+              <tr><td>Tariff</td><td align="right">${rec.tariffLabel}</td></tr>
+              <tr><td>Distance Fare (${rec.km} km)</td><td align="right">₹${rec.baseFare}</td></tr>
+              <tr><td>Night Halt (${rec.nights || 0} × ₹150)</td><td align="right">₹${rec.nightFare || 0}</td></tr>
+              <tr class="total"><td>Total Paid / Due</td><td align="right">₹${rec.totalFare}</td></tr>
+            </table>
+          </div>
+        </body>
+        </html>
+      `);
+      receiptWin.document.close();
+    }
+
+    // =========================================================================
+    // 7. LEAFLET LIVE MAP (STREET & SATELLITE)
+    // =========================================================================
+    function initMap() {
+      if (typeof L === 'undefined') return;
+      const agartalaCoords = [23.8315, 91.2868];
+      const airportCoords = [23.8870, 91.2404];
+
+      mapInstance = L.map('map').setView(agartalaCoords, 12);
+
+      streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      });
+
+      satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '&copy; Esri Satellite'
+      });
+
+      streetLayer.addTo(mapInstance);
+
+      L.marker(agartalaCoords).addTo(mapInstance).bindPopup('Pickup: Agartala Center');
+      L.marker(airportCoords).addTo(mapInstance).bindPopup('Drop: MBB Airport');
+      routePolyline = L.polyline([agartalaCoords, [23.8601, 91.2650], airportCoords], {
+        color: '#0f172a',
+        weight: 4
+      }).addTo(mapInstance);
+    }
+
+    function setMapLayer(mode) {
+      if (!mapInstance) return;
+      const btnStreet = document.getElementById('btnStreetLayer');
+      const btnSat = document.getElementById('btnSatLayer');
+
+      if (mode === 'satellite') {
+        mapInstance.removeLayer(streetLayer);
+        satelliteLayer.addTo(mapInstance);
+        btnSat.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-900 text-white';
+        btnStreet.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200';
+      } else {
+        mapInstance.removeLayer(satelliteLayer);
+        streetLayer.addTo(mapInstance);
+        btnStreet.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-900 text-white';
+        btnSat.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200';
+      }
+    }
+
+    function simulateRouteUpdate() {
+      const pickup = document.getElementById('pickupInput').value.trim() || 'Pickup';
+      const drop = document.getElementById('dropInput').value.trim() || 'Drop';
+      const km = parseFloat(document.getElementById('distanceInput').value) || 14;
+      document.getElementById('mapStatusText').textContent = `Route: ${pickup} → ${drop} (${km.toFixed(1)} km)`;
+      recalculateFare();
+      showToast(`Route updated: ${pickup} to ${drop} (${km} km).`, 'info');
+    }
+
+    // =========================================================================
+    // 8. INITIALIZATION & URL DISPATCH LINK PARSER
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('toggleDriverModeBtn').addEventListener('click', openDriverAuthModal);
+
+      loadLedger();
+
+      // Restore verified night halts from localStorage
+      const savedNights = getVerifiedNightHalts();
+      document.getElementById('driverNightHaltInput').value = savedNights;
+
+      // Restore active booking if stored
+      try {
+        const savedBookingRaw = localStorage.getItem(STORAGE_KEYS.ACTIVE_BOOKING);
+        if (savedBookingRaw) {
+          currentBookingData = JSON.parse(savedBookingRaw);
+          activeBookingId = currentBookingData.id;
+          if (typeof currentBookingData.nights === 'number') {
+            document.getElementById('driverNightHaltInput').value = currentBookingData.nights;
+            localStorage.setItem(STORAGE_KEYS.NIGHT_HALTS, String(currentBookingData.nights));
+          }
+          updateClientBookingStatusUI();
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+
+      // Check URL params for WhatsApp deep-link dispatch (?driver=1&booking=...)
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('driver') === '1') {
+        const bId = params.get('booking') || 'DC-NEW';
+        const urlNights = params.get('nights');
+        if (urlNights !== null && !isNaN(parseInt(urlNights, 10))) {
+          const n = Math.max(0, parseInt(urlNights, 10));
+          document.getElementById('driverNightHaltInput').value = n;
+          localStorage.setItem(STORAGE_KEYS.NIGHT_HALTS, String(n));
+        }
+        document.getElementById('incomingDispatchBanner').classList.remove('hidden');
+        document.getElementById('incomingBookingTitle').textContent = `WhatsApp Dispatch: ${bId}`;
+      }
+
+      initMap();
+      recalculateFare();
+      renderCloudLedger();
+    });
+  </script>
+</body>
+</html>
