@@ -1301,34 +1301,43 @@
       );
     }
 
-    // --- 2. FARE CALCULATION & LOCAL QR CODE GENERATOR ---
+        // --- 2. FARE CALCULATION & LOCAL QR CODE GENERATOR ---
     function getCurrentFareDetails() {
       const tariffEl = document.querySelector('input[name="tariff"]:checked');
-      const rate = parseFloat(tariffEl.value) || 10;
+      const rate = parseFloat(tariffEl ? tariffEl.value : 10) || 10;
       const tariffLabel = rate === 10 ? 'Standard (₹10/km)' : rate === 18 ? 'Contract Non-AC (₹18/km)' : 'Contract AC (₹20/km)';
       const km = Math.max(0, parseFloat(document.getElementById('distanceInput').value) || 0);
-      const nights = Math.max(0, parseInt(document.getElementById('nightHaltInput').value, 10) || 0);
+      
+      // CHANGE: Night halts are controlled exclusively by the Driver Admin panel
+      const driverNightHaltEl = document.getElementById('driverNightHaltInput');
+      const nights = driverNightHaltEl ? Math.max(0, parseInt(driverNightHaltEl.value, 10) || 0) : 0;
+
       const baseFare = Math.round(km * rate);
       const nightFare = nights * 150;
       const totalFare = baseFare + nightFare;
       return { rate, tariffLabel, km, nights, baseFare, nightFare, totalFare };
     }
 
-    function recalculateFare() {
+
+        function recalculateFare() {
       const { rate, km, nights, baseFare, nightFare, totalFare } = getCurrentFareDetails();
 
       document.getElementById('summaryKm').textContent = km.toFixed(1);
       document.getElementById('summaryRate').textContent = rate;
       document.getElementById('summaryBaseFare').textContent = `₹${baseFare}`;
+      
+      // CHANGE: Updates night halt summary line dynamically from driver admin input
       document.getElementById('summaryNights').textContent = nights;
       document.getElementById('summaryNightFare').textContent = `₹${nightFare}`;
+      
       document.getElementById('totalFareDisplay').textContent = `₹${totalFare}`;
 
       const upiUri = `upi://pay?pa=9612032475@okbizaxis&pn=D'Cruz%20Car%20Rental&am=${totalFare}&cu=INR&tn=Alto%20K10%20Booking`;
-      document.getElementById('upiDeepLink').href = upiUri;
+      const upiLinkEl = document.getElementById('upiDeepLink');
+      if (upiLinkEl) upiLinkEl.href = upiUri;
 
       const qrContainer = document.getElementById('qrcode');
-      if (qrContainer && typeof QRCode !== 'undefined') {
+      if (qrContainer) {
         qrContainer.innerHTML = '';
         new QRCode(qrContainer, {
           text: upiUri,
