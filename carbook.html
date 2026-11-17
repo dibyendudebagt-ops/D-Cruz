@@ -917,22 +917,37 @@
       updateDriverActiveBookingUI();
     }
 
-    function resetClientForm() {
-      if (currentBookingData && currentBookingData.status === 'IN_PROGRESS') {
+        function resetClientForm() {
+      // 1. Safety check: Do not reset if a trip is currently active or in progress
+      if (isJourneyStarted || (currentBookingData && currentBookingData.status === 'IN_PROGRESS')) {
         showToast('Cannot reset form while a trip is in progress.', 'warning');
         return;
       }
-      document.getElementById('clientNameInput').value = '';
-      document.getElementById('clientPhoneInput').value = '';
+
+      // 2. Clear passenger input fields
+      document.getElementById('passengerName').value = '';
+      document.getElementById('passengerPhone').value = '';
       document.getElementById('distanceInput').value = '14';
+
+      // 3. Clear incoming WhatsApp dispatch storage and banner
+      localStorage.removeItem('dcruz_last_incoming_booking');
+      localStorage.removeItem('dcruz_incoming_payload');
+      const incomingBanner = document.getElementById('incomingWhatsappBanner');
+      if (incomingBanner) incomingBanner.classList.add('hidden');
+
+      // 4. Reset active booking states and local storage
       currentBookingData = null;
       activeBookingId = null;
       localStorage.removeItem(STORAGE_KEYS.ACTIVE_BOOKING);
+
+      // 5. Update UI components and recalculate fare
       updateClientBookingStatusUI();
       updateDriverActiveBookingUI();
       recalculateFare();
-      showToast('Booking form reset.', 'info');
+      
+      showToast('Booking form and incoming WhatsApp dispatch reset.', 'info');
     }
+
 
     // =========================================================================
     // 6. ONEDRIVE CLOUD LEDGER & INLINE NIGHT HALT EDITOR + RECEIPT EXPORT
